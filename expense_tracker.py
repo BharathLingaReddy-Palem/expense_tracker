@@ -1,14 +1,18 @@
 from fastmcp import FastMCP
 import os
 import sqlite3
-import tempfile
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
 
 mcp = FastMCP("Expense Tracker")
 
-DB = Path(os.environ.get("EXPENSES_DB_PATH", Path(tempfile.gettempdir()) / "expenses.db"))
+DB = Path(
+    os.environ.get(
+        "EXPENSES_DB_PATH",
+        Path(__file__).resolve().parent / "expenses.db"
+    )
+)
 
 CATEGORIES = {
     "food": [

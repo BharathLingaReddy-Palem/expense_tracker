@@ -32,8 +32,10 @@ The app starts with:
 mcp.run(transport="http", host="0.0.0.0", port=8000)
 ```
 
-If your cloud host mounts the source tree as read-only, set a writable database path:
+If your cloud host provides a persistent volume, set the database path there:
 
 ```bash
-EXPENSES_DB_PATH=/tmp/expenses.db
+EXPENSES_DB_PATH=/data/expenses.db
 ```
+
+If the host allows writes inside the repo folder, the app will use `expenses.db` next to `expense_tracker.py` by default.
