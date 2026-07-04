@@ -1,18 +1,49 @@
 from fastmcp import FastMCP
 import os
 import sqlite3
+import tempfile
 from datetime import datetime
 from difflib import get_close_matches
 from pathlib import Path
+from shutil import copy2
 
 mcp = FastMCP("Expense Tracker")
 
-DB = Path(
-    os.environ.get(
-        "EXPENSES_DB_PATH",
-        Path(__file__).resolve().parent / "expenses.db"
+DEFAULT_DB = Path(
+    __file__
+).resolve().parent / "expenses.db"
+
+
+def _path_is_writable(path: Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        test_file = path.parent / f".write_test_{os.getpid()}"
+        test_file.write_text("test", encoding="utf-8")
+        test_file.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def resolve_db_path() -> Path:
+    configured_path = Path(
+        os.environ.get("EXPENSES_DB_PATH", DEFAULT_DB)
     )
-)
+
+    if _path_is_writable(configured_path):
+        return configured_path
+
+    fallback_path = Path(tempfile.gettempdir()) / "expenses.db"
+    if configured_path.exists() and not fallback_path.exists():
+        try:
+            copy2(configured_path, fallback_path)
+        except OSError:
+            pass
+
+    return fallback_path
+
+
+DB = resolve_db_path()
 
 CATEGORIES = {
     "food": [

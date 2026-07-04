@@ -38,4 +38,5 @@ If your cloud host provides a persistent volume, set the database path there:
 EXPENSES_DB_PATH=/data/expenses.db
 ```
 
-If the host allows writes inside the repo folder, the app will use `expenses.db` next to `expense_tracker.py` by default.
+If the repo folder is read-only, the app will automatically fall back to a writable temp database so writes work again.
+That fallback fixes the readonly error, but it is not persistent across container restarts.
