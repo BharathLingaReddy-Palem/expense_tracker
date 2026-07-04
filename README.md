@@ -38,5 +38,6 @@ If your cloud host provides a persistent volume, set the database path there:
 EXPENSES_DB_PATH=/data/expenses.db
 ```
 
-If the repo folder is read-only, the app will automatically fall back to a writable temp database so writes work again.
-That fallback fixes the readonly error, but it is not persistent across container restarts.
+If the repo folder is read-only, the app will try a stable user-home database path before falling back to temp.
+If an older database exists in another location, the app will copy it into the selected path on startup when possible.
+For real persistence across Horizon restarts, point `EXPENSES_DB_PATH` at a mounted persistent volume.

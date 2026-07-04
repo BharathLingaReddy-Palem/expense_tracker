@@ -25,22 +25,49 @@ def _path_is_writable(path: Path) -> bool:
         return False
 
 
+def _candidate_db_paths() -> list[Path]:
+    candidates = []
+
+    env_path = os.environ.get("EXPENSES_DB_PATH")
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.append(DEFAULT_DB)
+    candidates.append(Path.home() / ".expense_tracker" / "expenses.db")
+    candidates.append(Path(tempfile.gettempdir()) / "expenses.db")
+
+    unique_candidates = []
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser().resolve(strict=False)
+        if resolved not in seen:
+            unique_candidates.append(resolved)
+            seen.add(resolved)
+
+    return unique_candidates
+
+
 def resolve_db_path() -> Path:
-    configured_path = Path(
-        os.environ.get("EXPENSES_DB_PATH", DEFAULT_DB)
-    )
+    candidates = _candidate_db_paths()
 
-    if _path_is_writable(configured_path):
-        return configured_path
+    for candidate in candidates:
+        if _path_is_writable(candidate):
+            target = candidate
+            break
+    else:
+        target = candidates[-1]
 
-    fallback_path = Path(tempfile.gettempdir()) / "expenses.db"
-    if configured_path.exists() and not fallback_path.exists():
-        try:
-            copy2(configured_path, fallback_path)
-        except OSError:
-            pass
+    if not target.exists():
+        for source in candidates:
+            if source != target and source.exists():
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    copy2(source, target)
+                    break
+                except OSError:
+                    continue
 
-    return fallback_path
+    return target
 
 
 DB = resolve_db_path()
