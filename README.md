@@ -31,3 +31,9 @@ The app starts with:
 ```python
 mcp.run(transport="http", host="0.0.0.0", port=8000)
 ```
+
+If your cloud host mounts the source tree as read-only, set a writable database path:
+
+```bash
+EXPENSES_DB_PATH=/tmp/expenses.db
+```

@@ -1,11 +1,14 @@
 from fastmcp import FastMCP
+import os
 import sqlite3
+import tempfile
 from datetime import datetime
 from difflib import get_close_matches
+from pathlib import Path
 
 mcp = FastMCP("Expense Tracker")
 
-DB = "expenses.db"
+DB = Path(os.environ.get("EXPENSES_DB_PATH", Path(tempfile.gettempdir()) / "expenses.db"))
 
 CATEGORIES = {
     "food": [
@@ -34,7 +37,8 @@ CATEGORIES = {
 
 
 def init_db():
-    conn = sqlite3.connect(DB)
+    DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB))
 
     conn.execute("""
     CREATE TABLE IF NOT EXISTS expenses(
@@ -135,7 +139,7 @@ def add_expense(
 
     category = detect_category(description)
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
@@ -182,7 +186,7 @@ def get_all_expenses():
     Get all expenses sorted by latest date.
     """
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute("""
@@ -211,7 +215,7 @@ def get_expenses_by_date(date: str):
             "error": "Date must be in YYYY-MM-DD format"
         }
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
@@ -237,7 +241,7 @@ def search_expenses(keyword: str):
     Search expenses by description or category.
     """
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
@@ -269,7 +273,7 @@ def monthly_summary():
 
     month = datetime.now().strftime("%Y-%m")
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
@@ -311,7 +315,7 @@ def update_expense(
     Update expense amount by ID.
     """
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
@@ -349,7 +353,7 @@ def delete_expense(
     Delete expense by ID.
     """
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(str(DB))
     cur = conn.cursor()
 
     cur.execute(
