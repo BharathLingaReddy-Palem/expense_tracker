@@ -1,76 +1,61 @@
 from fastmcp import FastMCP
 import os
-import sqlite3
-import tempfile
+import libsql
 from datetime import datetime
 from difflib import get_close_matches
-from pathlib import Path
-from shutil import copy2
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env file automatically (works locally and on Horizon)
 
 mcp = FastMCP("Expense Tracker")
 
-DEFAULT_DB = Path(
-    __file__
-).resolve().parent / "expenses.db"
+# ---------------------------------------------------------------------------
+# Database connection
+# ---------------------------------------------------------------------------
+# Set these environment variables in your Horizon deployment dashboard:
+#   TURSO_DATABASE_URL  ->  libsql://<your-db-name>.turso.io
+#   TURSO_AUTH_TOKEN    ->  your Turso auth token
+# ---------------------------------------------------------------------------
+
+_db = None
 
 
-def _path_is_writable(path: Path) -> bool:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        test_file = path.parent / f".write_test_{os.getpid()}"
-        test_file.write_text("test", encoding="utf-8")
-        test_file.unlink()
-        return True
-    except OSError:
-        return False
+def get_db():
+    """Return a cached libsql connection to the Turso cloud database."""
+    global _db
+    if _db is None:
+        url = os.environ.get("TURSO_DATABASE_URL")
+        token = os.environ.get("TURSO_AUTH_TOKEN", "")
+        if not url:
+            raise RuntimeError(
+                "TURSO_DATABASE_URL environment variable is not set. "
+                "Add it in your Horizon deployment settings."
+            )
+        _db = libsql.connect(url, auth_token=token)
+    return _db
 
 
-def _candidate_db_paths() -> list[Path]:
-    candidates = []
-
-    env_path = os.environ.get("EXPENSES_DB_PATH")
-    if env_path:
-        candidates.append(Path(env_path))
-
-    candidates.append(DEFAULT_DB)
-    candidates.append(Path.home() / ".expense_tracker" / "expenses.db")
-    candidates.append(Path(tempfile.gettempdir()) / "expenses.db")
-
-    unique_candidates = []
-    seen = set()
-    for candidate in candidates:
-        resolved = candidate.expanduser().resolve(strict=False)
-        if resolved not in seen:
-            unique_candidates.append(resolved)
-            seen.add(resolved)
-
-    return unique_candidates
+def init_db():
+    """Create the expenses table if it does not already exist."""
+    db = get_db()
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount       REAL    NOT NULL,
+            description  TEXT    NOT NULL,
+            category     TEXT    NOT NULL,
+            expense_date TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL
+        )
+    """)
+    db.commit()
 
 
-def resolve_db_path() -> Path:
-    candidates = _candidate_db_paths()
+init_db()
 
-    for candidate in candidates:
-        if _path_is_writable(candidate):
-            target = candidate
-            break
-    else:
-        target = candidates[-1]
-
-    if not target.exists():
-        for source in candidates:
-            if source != target and source.exists():
-                try:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    copy2(source, target)
-                    break
-                except OSError:
-                    continue
-
-    return target
-
-
-DB = resolve_db_path()
+# ---------------------------------------------------------------------------
+# Category detection
+# ---------------------------------------------------------------------------
 
 CATEGORIES = {
     "food": [
@@ -98,68 +83,28 @@ CATEGORIES = {
 }
 
 
-def init_db():
-    DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB))
-
-    conn.execute("""
-    CREATE TABLE IF NOT EXISTS expenses(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        amount REAL NOT NULL,
-        description TEXT NOT NULL,
-        category TEXT NOT NULL,
-        expense_date TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-init_db()
-
-
-def detect_category(description: str):
-
+def detect_category(description: str) -> str:
     desc = description.lower()
-
     all_words = []
 
     for category, keywords in CATEGORIES.items():
-
         for keyword in keywords:
-
             if keyword in desc:
                 return category
-
             all_words.append(keyword)
 
-    words = desc.split()
-
-    for word in words:
-
-        match = get_close_matches(
-            word,
-            all_words,
-            n=1,
-            cutoff=0.7
-        )
-
+    for word in desc.split():
+        match = get_close_matches(word, all_words, n=1, cutoff=0.7)
         if match:
-
             matched_word = match[0]
-
             for category, keywords in CATEGORIES.items():
-
                 if matched_word in keywords:
                     return category
 
     return "other"
 
 
-def validate_date(date_string: str):
-
+def validate_date(date_string: str) -> bool:
     try:
         datetime.strptime(date_string, "%Y-%m-%d")
         return True
@@ -167,101 +112,70 @@ def validate_date(date_string: str):
         return False
 
 
-def row_to_dict(row):
-
+def row_to_dict(row) -> dict:
     return {
-        "id": row[0],
-        "amount": row[1],
-        "description": row[2],
-        "category": row[3],
+        "id":           row[0],
+        "amount":       row[1],
+        "description":  row[2],
+        "category":     row[3],
         "expense_date": row[4],
-        "created_at": row[5]
+        "created_at":   row[5],
     }
+
+# ---------------------------------------------------------------------------
+# MCP Tools
+# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
 def add_expense(
     amount: float,
     description: str,
-    expense_date: str = None
+    expense_date: str = None,
 ):
     """
     Add a new expense.
-    Category is automatically detected from description.
+    Category is automatically detected from the description.
+    expense_date must be in YYYY-MM-DD format (defaults to today).
     """
-
     if expense_date is None:
         expense_date = datetime.now().strftime("%Y-%m-%d")
 
     if not validate_date(expense_date):
-        return {
-            "success": False,
-            "error": "Date must be in YYYY-MM-DD format"
-        }
+        return {"success": False, "error": "Date must be in YYYY-MM-DD format"}
 
     category = detect_category(description)
+    db = get_db()
 
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
+    cur = db.execute(
         """
-        INSERT INTO expenses(
-            amount,
-            description,
-            category,
-            expense_date,
-            created_at
-        )
+        INSERT INTO expenses (amount, description, category, expense_date, created_at)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (
-            amount,
-            description,
-            category,
-            expense_date,
-            datetime.now().isoformat()
-        )
+        (amount, description, category, expense_date, datetime.now().isoformat()),
     )
-
-    conn.commit()
-
-    expense_id = cur.lastrowid
-
-    conn.close()
+    db.commit()
 
     return {
         "success": True,
         "expense": {
-            "id": expense_id,
-            "amount": amount,
-            "description": description,
-            "category": category,
-            "expense_date": expense_date
-        }
+            "id":           cur.lastrowid,
+            "amount":       amount,
+            "description":  description,
+            "category":     category,
+            "expense_date": expense_date,
+        },
     }
 
 
 @mcp.tool()
 def get_all_expenses():
-    """
-    Get all expenses sorted by latest date.
-    """
-
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT *
-        FROM expenses
-        ORDER BY expense_date DESC, id DESC
-    """)
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    return [row_to_dict(row) for row in rows]
+    """Get all expenses sorted by latest date."""
+    db = get_db()
+    cur = db.execute(
+        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
+    )
+    return [row_to_dict(row) for row in cur.fetchall()]
 
 
 @mcp.tool()
@@ -270,179 +184,98 @@ def get_expenses_by_date(date: str):
     Get expenses for a specific date.
     Format: YYYY-MM-DD
     """
-
     if not validate_date(date):
-        return {
-            "success": False,
-            "error": "Date must be in YYYY-MM-DD format"
-        }
+        return {"success": False, "error": "Date must be in YYYY-MM-DD format"}
 
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT *
-        FROM expenses
-        WHERE expense_date = ?
-        ORDER BY id DESC
-        """,
-        (date,)
+    db = get_db()
+    cur = db.execute(
+        "SELECT * FROM expenses WHERE expense_date = ? ORDER BY id DESC",
+        (date,),
     )
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    return [row_to_dict(row) for row in rows]
+    return [row_to_dict(row) for row in cur.fetchall()]
 
 
 @mcp.tool()
 def search_expenses(keyword: str):
-    """
-    Search expenses by description or category.
-    """
-
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
+    """Search expenses by description or category."""
+    db = get_db()
+    cur = db.execute(
         """
-        SELECT *
-        FROM expenses
+        SELECT * FROM expenses
         WHERE description LIKE ?
-           OR category LIKE ?
+           OR category    LIKE ?
         ORDER BY expense_date DESC
         """,
-        (
-            f"%{keyword}%",
-            f"%{keyword}%"
-        )
+        (f"%{keyword}%", f"%{keyword}%"),
     )
-
-    rows = cur.fetchall()
-
-    conn.close()
-
-    return [row_to_dict(row) for row in rows]
+    return [row_to_dict(row) for row in cur.fetchall()]
 
 
 @mcp.tool()
 def monthly_summary():
-    """
-    Get current month's expense summary.
-    """
-
+    """Get the current month expense summary grouped by category."""
     month = datetime.now().strftime("%Y-%m")
-
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
+    db = get_db()
+    cur = db.execute(
         """
-        SELECT category,
-               SUM(amount)
+        SELECT category, SUM(amount)
         FROM expenses
         WHERE expense_date LIKE ?
         GROUP BY category
         """,
-        (month + "%",)
+        (month + "%",),
     )
-
     rows = cur.fetchall()
 
-    conn.close()
-
     categories = {}
-    total = 0
-
-    for category, amount in rows:
-        amount = float(amount)
-        categories[category] = amount
-        total += amount
+    total = 0.0
+    for row in rows:
+        amt = float(row[1])
+        categories[row[0]] = amt
+        total += amt
 
     return {
-        "month": month,
+        "month":         month,
         "total_expense": total,
-        "categories": categories
+        "categories":    categories,
     }
 
 
 @mcp.tool()
-def update_expense(
-    expense_id: int,
-    new_amount: float
-):
-    """
-    Update expense amount by ID.
-    """
-
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        UPDATE expenses
-        SET amount = ?
-        WHERE id = ?
-        """,
-        (new_amount, expense_id)
+def update_expense(expense_id: int, new_amount: float):
+    """Update the amount of an existing expense by its ID."""
+    db = get_db()
+    cur = db.execute(
+        "UPDATE expenses SET amount = ? WHERE id = ?",
+        (new_amount, expense_id),
     )
+    db.commit()
 
-    conn.commit()
+    if cur.rowcount == 0:
+        return {"success": False, "error": "Expense not found"}
 
-    updated = cur.rowcount
-
-    conn.close()
-
-    if updated == 0:
-        return {
-            "success": False,
-            "error": "Expense not found"
-        }
-
-    return {
-        "success": True,
-        "message": "Expense updated"
-    }
+    return {"success": True, "message": "Expense updated"}
 
 
 @mcp.tool()
-def delete_expense(
-    expense_id: int
-):
-    """
-    Delete expense by ID.
-    """
-
-    conn = sqlite3.connect(str(DB))
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        DELETE FROM expenses
-        WHERE id = ?
-        """,
-        (expense_id,)
+def delete_expense(expense_id: int):
+    """Delete an expense by its ID."""
+    db = get_db()
+    cur = db.execute(
+        "DELETE FROM expenses WHERE id = ?",
+        (expense_id,),
     )
+    db.commit()
 
-    conn.commit()
+    if cur.rowcount == 0:
+        return {"success": False, "error": "Expense not found"}
 
-    deleted = cur.rowcount
+    return {"success": True, "message": "Expense deleted"}
 
-    conn.close()
 
-    if deleted == 0:
-        return {
-            "success": False,
-            "error": "Expense not found"
-        }
-
-    return {
-        "success": True,
-        "message": "Expense deleted"
-    }
-
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)

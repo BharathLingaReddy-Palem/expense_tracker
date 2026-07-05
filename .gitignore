@@ -10,3 +10,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment secrets - never commit this!
+.env
