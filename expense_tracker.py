@@ -50,8 +50,12 @@ def get_db():
 
 def init_db():
     """
-    Create the expenses table and indexes if they do not already exist.
-    Indexes added:
+    Create all tables and indexes if they do not already exist.
+    Tables:
+      - expenses  : core expense records
+      - budgets   : per-category monthly budget limits (set once, lasts forever)
+      - reminders : one-time or monthly recurring payment reminders
+    Indexes on expenses:
       - idx_expense_date  : speeds up date filtering, monthly/weekly summaries
       - idx_category      : speeds up category grouping and delete-by-category
       - idx_description   : speeds up keyword search on description
@@ -59,6 +63,8 @@ def init_db():
     With indexes queries are O(log n) — 10-100x faster as data grows.
     """
     db = get_db()
+
+    # ── expenses ──────────────────────────────────────────────────────────────
     db.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,20 +75,44 @@ def init_db():
             created_at   TEXT    NOT NULL
         )
     """)
-    # Index on expense_date — used by: get_expenses_by_date, monthly_summary,
-    # weekly_summary, yearly_summary, spending_analytics, delete_expenses_by_date
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_expense_date ON expenses (expense_date)"
     )
-    # Index on category — used by: monthly_summary, spending_analytics,
-    # delete_expenses_by_category, search_expenses
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_category ON expenses (category)"
     )
-    # Index on description — used by: search_expenses, delete_expenses_by_description
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_description ON expenses (description)"
     )
+
+    # ── budgets ───────────────────────────────────────────────────────────────
+    # One row per category. UNIQUE on category ensures only one budget per
+    # category exists. Set once — applies to every future month automatically.
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS budgets (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            category   TEXT    NOT NULL UNIQUE,
+            amount     REAL    NOT NULL,
+            created_at TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL
+        )
+    """)
+
+    # ── reminders ─────────────────────────────────────────────────────────────
+    # Supports both one-time (due_date) and monthly recurring (recurring_day).
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            description   TEXT    NOT NULL,
+            amount        REAL,
+            due_date      TEXT,            -- YYYY-MM-DD for one-time reminders
+            is_recurring  INTEGER DEFAULT 0,  -- 1 = repeats every month
+            recurring_day INTEGER,         -- day of month (1-31) for recurring
+            is_done       INTEGER DEFAULT 0,  -- 1 = marked as done
+            created_at    TEXT    NOT NULL
+        )
+    """)
+
     db.commit()
 
 
@@ -932,6 +962,325 @@ def delete_all_expenses(confirm: bool = False):
         "success": True,
         "deleted": total,
         "message": f"All {total} expenses have been permanently deleted.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — BUDGET SYSTEM
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def set_budget(category: str, amount: float):
+    """
+    Set or update a monthly budget for a category.
+    The budget is stored PERMANENTLY — it applies to every future month
+    automatically without needing to be reset each month.
+    To change it, call set_budget again with the new amount.
+    Categories: food, transport, groceries, entertainment, healthcare,
+                shopping, utilities, education, other
+    Example: set_budget('food', 3000) — limits food spend to Rs 3000/month
+    """
+    category = category.strip().lower()
+    if category not in VALID_CATEGORIES:
+        return {
+            "success": False,
+            "error":   f"Invalid category '{category}'. Valid: {', '.join(VALID_CATEGORIES)}",
+        }
+
+    ok, err = validate_amount(amount)
+    if not ok:
+        return {"success": False, "error": err}
+
+    now = datetime.now().isoformat()
+    db  = get_db()
+
+    # UPSERT — insert new or update existing budget for this category
+    db.execute(
+        """
+        INSERT INTO budgets (category, amount, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(category) DO UPDATE SET
+            amount     = excluded.amount,
+            updated_at = excluded.updated_at
+        """,
+        (category, amount, now, now),
+    )
+    db.commit()
+
+    return {
+        "success":  True,
+        "message":  f"Budget set: Rs {amount} per month for '{category}'. Applies every month automatically.",
+        "category": category,
+        "amount":   amount,
+    }
+
+
+@mcp.tool()
+def get_budget_status(month: str = None):
+    """
+    Show spending vs budget for all categories for a given month.
+    Highlights which categories are over budget, near limit, or safe.
+    month format: YYYY-MM (defaults to current month).
+    """
+    if month is None:
+        month = datetime.now().strftime("%Y-%m")
+
+    import calendar
+    year_str, month_str = month.split("-")
+    last_day   = calendar.monthrange(int(year_str), int(month_str))[1]
+    start_date = f"{month}-01"
+    end_date   = f"{month}-{last_day:02d}"
+
+    db = get_db()
+
+    # Fetch all set budgets
+    cur = db.execute("SELECT category, amount FROM budgets ORDER BY category")
+    budgets = {row[0]: row[1] for row in cur.fetchall()}
+
+    if not budgets:
+        return {
+            "success": False,
+            "error":   "No budgets set yet. Use set_budget(category, amount) to set one.",
+        }
+
+    # Fetch this month's spending per category
+    cur = db.execute(
+        """
+        SELECT category, SUM(amount)
+        FROM expenses
+        WHERE expense_date >= ? AND expense_date <= ?
+        GROUP BY category
+        """,
+        (start_date, end_date),
+    )
+    spent_map = {row[0]: float(row[1]) for row in cur.fetchall()}
+
+    result    = {}
+    total_budget = 0.0
+    total_spent  = 0.0
+
+    for cat, budget_amt in budgets.items():
+        spent   = spent_map.get(cat, 0.0)
+        pct     = round((spent / budget_amt) * 100, 1) if budget_amt > 0 else 0
+        remaining = round(budget_amt - spent, 2)
+
+        if pct >= 100:
+            status = "OVER BUDGET"
+        elif pct >= 80:
+            status = "WARNING — near limit"
+        else:
+            status = "OK"
+
+        result[cat] = {
+            "budget":    budget_amt,
+            "spent":     round(spent, 2),
+            "remaining": remaining,
+            "percent":   pct,
+            "status":    status,
+        }
+        total_budget += budget_amt
+        total_spent  += spent
+
+    return {
+        "month":        month,
+        "total_budget": round(total_budget, 2),
+        "total_spent":  round(total_spent, 2),
+        "remaining":    round(total_budget - total_spent, 2),
+        "categories":   result,
+    }
+
+
+@mcp.tool()
+def delete_budget(category: str):
+    """
+    Remove the monthly budget for a category.
+    After deletion, no budget check will be applied for that category.
+    """
+    category = category.strip().lower()
+    db = get_db()
+    cur = db.execute("SELECT id FROM budgets WHERE category = ?", (category,))
+    if not cur.fetchone():
+        return {"success": False, "error": f"No budget found for category '{category}'."}
+
+    db.execute("DELETE FROM budgets WHERE category = ?", (category,))
+    db.commit()
+    return {
+        "success": True,
+        "message": f"Budget for '{category}' removed. No limit will be applied going forward.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — REMINDERS
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def set_reminder(
+    description:   str,
+    due_date:      str   = None,
+    amount:        float = None,
+    is_recurring:  bool  = False,
+    recurring_day: int   = None,
+):
+    """
+    Set a payment reminder.
+    Two types:
+      1. One-time:  due_date="YYYY-MM-DD"  (e.g. "pay electricity bill on Aug 5")
+      2. Recurring: is_recurring=True, recurring_day=<day>  (e.g. "pay rent every 1st")
+    amount is optional — use it when you know the fixed amount (e.g. rent Rs 8000).
+    Examples:
+      set_reminder('Pay electricity', due_date='2026-08-05', amount=600)
+      set_reminder('Pay rent', amount=8000, is_recurring=True, recurring_day=1)
+    """
+    description = description.strip()
+    if len(description) < 2:
+        return {"success": False, "error": "Description must be at least 2 characters."}
+
+    # Validate for one-time reminder
+    if not is_recurring:
+        if not due_date:
+            return {"success": False, "error": "due_date is required for one-time reminders (format: YYYY-MM-DD)."}
+        if not validate_date(due_date):
+            return {"success": False, "error": "due_date must be in YYYY-MM-DD format."}
+
+    # Validate for recurring reminder
+    if is_recurring:
+        if recurring_day is None:
+            return {"success": False, "error": "recurring_day (1-31) is required for recurring reminders."}
+        if not (1 <= recurring_day <= 31):
+            return {"success": False, "error": "recurring_day must be between 1 and 31."}
+
+    # Validate optional amount
+    if amount is not None:
+        ok, err = validate_amount(amount)
+        if not ok:
+            return {"success": False, "error": err}
+
+    now = datetime.now().isoformat()
+    db  = get_db()
+    cur = db.execute(
+        """
+        INSERT INTO reminders
+            (description, amount, due_date, is_recurring, recurring_day, is_done, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+        """,
+        (description, amount, due_date, int(is_recurring), recurring_day, now),
+    )
+    db.commit()
+
+    msg = (
+        f"Recurring reminder set: '{description}' every {recurring_day} of the month."
+        if is_recurring
+        else f"Reminder set: '{description}' due on {due_date}."
+    )
+    return {
+        "success":      True,
+        "id":           cur.lastrowid,
+        "message":      msg,
+        "description":  description,
+        "amount":       amount,
+        "due_date":     due_date,
+        "is_recurring": is_recurring,
+        "recurring_day": recurring_day,
+    }
+
+
+@mcp.tool()
+def get_upcoming_reminders(days: int = 7):
+    """
+    Show all reminders due within the next N days (default: 7).
+    Includes:
+      - One-time reminders with a due_date in the window
+      - Recurring reminders whose next trigger falls within the window
+    Only shows reminders not yet marked as done.
+    """
+    days  = max(1, min(days, 90))   # clamp 1–90 days
+    today = datetime.now().date()
+    until = today + timedelta(days=days)
+    db    = get_db()
+
+    cur = db.execute(
+        "SELECT id, description, amount, due_date, is_recurring, recurring_day FROM reminders WHERE is_done = 0"
+    )
+    all_reminders = cur.fetchall()
+
+    upcoming = []
+    for row in all_reminders:
+        rid, desc, amt, due_date_str, is_rec, rec_day = row
+
+        if is_rec:
+            # Calculate next occurrence of recurring_day in current or next month
+            # Try this month first, then next month
+            for delta_months in [0, 1]:
+                try:
+                    import calendar
+                    check_year  = today.year  + (1 if today.month + delta_months > 12 else 0)
+                    check_month = (today.month + delta_months - 1) % 12 + 1
+                    max_day = calendar.monthrange(check_year, check_month)[1]
+                    actual_day  = min(rec_day, max_day)
+                    next_due = datetime(check_year, check_month, actual_day).date()
+                    if today <= next_due <= until:
+                        days_left = (next_due - today).days
+                        upcoming.append({
+                            "id":          rid,
+                            "description": desc,
+                            "amount":      amt,
+                            "due_date":    str(next_due),
+                            "days_until":  days_left,
+                            "type":        "recurring (monthly)",
+                            "urgency":     "TODAY" if days_left == 0 else ("TOMORROW" if days_left == 1 else f"in {days_left} days"),
+                        })
+                        break
+                except ValueError:
+                    continue
+        else:
+            if due_date_str:
+                try:
+                    due = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+                    if today <= due <= until:
+                        days_left = (due - today).days
+                        upcoming.append({
+                            "id":          rid,
+                            "description": desc,
+                            "amount":      amt,
+                            "due_date":    due_date_str,
+                            "days_until":  days_left,
+                            "type":        "one-time",
+                            "urgency":     "TODAY" if days_left == 0 else ("TOMORROW" if days_left == 1 else f"in {days_left} days"),
+                        })
+                except ValueError:
+                    continue
+
+    # Sort by days_until ascending (most urgent first)
+    upcoming.sort(key=lambda x: x["days_until"])
+
+    return {
+        "window_days": days,
+        "count":       len(upcoming),
+        "reminders":   upcoming,
+        "message":     f"{len(upcoming)} reminder(s) due in the next {days} days." if upcoming else f"No reminders due in the next {days} days.",
+    }
+
+
+@mcp.tool()
+def delete_reminder(reminder_id: int):
+    """
+    Permanently delete a reminder by its ID.
+    Use get_upcoming_reminders() first to see IDs.
+    """
+    db  = get_db()
+    cur = db.execute("SELECT description FROM reminders WHERE id = ?", (reminder_id,))
+    row = cur.fetchone()
+    if not row:
+        return {"success": False, "error": f"No reminder found with ID {reminder_id}."}
+
+    db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+    db.commit()
+    return {
+        "success": True,
+        "message": f"Reminder '{row[0]}' (ID {reminder_id}) deleted.",
     }
 
 
