@@ -393,29 +393,37 @@ def add_bulk_expenses(expenses: list):
     # ONE API call to categorize ALL valid descriptions at once
     categories = detect_categories_batch([e["description"] for e in valid_indices])
 
-    # Insert all valid expenses with their AI-assigned categories
-    for expense, category in zip(valid_indices, categories):
-        cur = db.execute(
-            "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
-            (expense["amount"], expense["description"], category, expense["expense_date"], now),
-        )
-        results.append({
-            "id":           cur.lastrowid,
-            "amount":       expense["amount"],
-            "description":  expense["description"],
-            "category":     category,
-            "expense_date": expense["expense_date"],
-        })
+    # Build all rows to insert at once
+    rows_to_insert = [
+        (exp["amount"], exp["description"], cat, exp["expense_date"], now)
+        for exp, cat in zip(valid_indices, categories)
+    ]
 
-    db.commit()
+    # ONE executemany() call — inserts ALL expenses in a single DB operation
+    db.executemany(
+        "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
+        rows_to_insert,
+    )
+    db.commit()  # ONE commit for everything
+
+    # Build results — fetch the inserted IDs
+    cur = db.execute(
+        f"SELECT id, amount, description, category, expense_date FROM expenses ORDER BY id DESC LIMIT {len(rows_to_insert)}"
+    )
+    inserted_rows = list(reversed(cur.fetchall()))
+    results = [
+        {"id": r[0], "amount": r[1], "description": r[2], "category": r[3], "expense_date": r[4]}
+        for r in inserted_rows
+    ]
 
     return {
-        "success": True,
+        "success":  True,
         "inserted": len(results),
-        "failed": len(errors),
+        "failed":   len(errors),
         "expenses": results,
-        "errors": errors if errors else None,
+        "errors":   errors if errors else None,
     }
+
 
 
 # ---------------------------------------------------------------------------
