@@ -125,7 +125,7 @@ def detect_category_keyword(description: str) -> str:
 
 
 def detect_category_ai(description: str) -> str:
-    """AI-powered category detection using NVIDIA NIM via LangChain."""
+    """AI-powered category detection using NVIDIA NIM via LangChain (single expense)."""
     api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
         return detect_category_keyword(description)
@@ -136,7 +136,7 @@ def detect_category_ai(description: str) -> str:
             api_key=api_key,
             temperature=0.2,
             top_p=0.7,
-            max_completion_tokens=50,  # category name is 1-3 tokens; 50 gives safe headroom
+            max_completion_tokens=50,  # single category name — 50 is more than enough
         )
         category_list = ", ".join(VALID_CATEGORIES)
         prompt = (
@@ -162,11 +162,71 @@ def detect_category_ai(description: str) -> str:
         return detect_category_keyword(description)
 
 
+def detect_categories_batch(descriptions: list) -> list:
+    """
+    Categorize ALL descriptions in ONE single API call.
+    Returns a list of categories in the same order as descriptions.
+    This is far more efficient than calling the AI once per expense.
+    One call handles 5 expenses or 100 expenses — no rate limit concern.
+    """
+    api_key = os.environ.get("NVIDIA_API_KEY")
+    if not api_key:
+        # No API key — keyword match all
+        return [detect_category_keyword(d) for d in descriptions]
+
+    try:
+        client = ChatNVIDIA(
+            model="meta/llama-3.1-8b-instruct",
+            api_key=api_key,
+            temperature=0.2,
+            top_p=0.7,
+            # Each category is ~2-3 tokens; 100 categories = ~300 tokens max
+            max_completion_tokens=500,
+        )
+        category_list = ", ".join(VALID_CATEGORIES)
+        numbered = "\n".join(f"{i+1}. {d}" for i, d in enumerate(descriptions))
+        prompt = (
+            f"Categorize each expense below into exactly one of: {category_list}.\n"
+            f"Return ONLY a comma-separated list of categories in the SAME ORDER.\n"
+            f"No numbers, no explanations — just category names separated by commas.\n\n"
+            f"Expenses:\n{numbered}"
+        )
+        response = client.invoke([{"role": "user", "content": prompt}])
+        raw = response.content.strip().lower()
+
+        # Parse comma-separated response
+        parts = [p.strip() for p in raw.split(",")]
+
+        # Validate and map each part to a known category
+        categories = []
+        for i, part in enumerate(parts):
+            if part in VALID_CATEGORIES:
+                categories.append(part)
+            else:
+                # Try partial match
+                matched = next((cat for cat in VALID_CATEGORIES if cat in part), None)
+                if matched:
+                    categories.append(matched)
+                else:
+                    # Fallback to keyword for this one item
+                    categories.append(detect_category_keyword(descriptions[i]) if i < len(descriptions) else "other")
+
+        # If AI returned wrong number of categories, fill remainder with keyword matching
+        while len(categories) < len(descriptions):
+            categories.append(detect_category_keyword(descriptions[len(categories)]))
+
+        return categories[:len(descriptions)]
+
+    except Exception:
+        # Fallback: keyword match all if batch call fails
+        return [detect_category_keyword(d) for d in descriptions]
+
+
 def detect_category(description: str, use_ai: bool = True) -> str:
     """
-    Detect category.
-    - use_ai=True (default): uses NVIDIA NIM if key is set (for single expense adds)
-    - use_ai=False: always uses keyword matching (for bulk adds to avoid 40 RPM limit)
+    Detect category for a single expense.
+    - use_ai=True (default): uses NVIDIA NIM if key is set
+    - use_ai=False: always uses keyword matching
     """
     if use_ai and os.environ.get("NVIDIA_API_KEY"):
         return detect_category_ai(description)
@@ -293,6 +353,13 @@ def add_bulk_expenses(expenses: list):
     now = datetime.now().isoformat()
     today = datetime.now().strftime("%Y-%m-%d")
 
+    # -----------------------------------------------------------------------
+    # Batch AI categorization — ONE API call for ALL descriptions at once
+    # Much more efficient than calling AI per expense. No rate limit concern.
+    # -----------------------------------------------------------------------
+    valid_descriptions = []  # only descriptions that passed validation
+    valid_indices = []       # their positions in the results list (to be filled)
+
     for i, exp in enumerate(expenses):
         index = i + 1
 
@@ -319,20 +386,25 @@ def add_bulk_expenses(expenses: list):
             errors.append({"index": index, "description": description, "error": "Invalid date format, use YYYY-MM-DD"})
             continue
 
-        # Use AI for small batches (≤40) — safe within 40 RPM limit
-        # Use keyword matching for large batches (>40) — avoids rate limit
-        use_ai_for_this_batch = len(expenses) <= 40
-        category = detect_category(description, use_ai=use_ai_for_this_batch)
+        # This expense is valid — stage it for batch processing
+        valid_descriptions.append(description)
+        valid_indices.append({"amount": amount, "description": description, "expense_date": expense_date})
+
+    # ONE API call to categorize ALL valid descriptions at once
+    categories = detect_categories_batch([e["description"] for e in valid_indices])
+
+    # Insert all valid expenses with their AI-assigned categories
+    for expense, category in zip(valid_indices, categories):
         cur = db.execute(
             "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
-            (amount, description, category, expense_date, now),
+            (expense["amount"], expense["description"], category, expense["expense_date"], now),
         )
         results.append({
-            "id":          cur.lastrowid,
-            "amount":      amount,
-            "description": description,
-            "category":    category,
-            "expense_date": expense_date,
+            "id":           cur.lastrowid,
+            "amount":       expense["amount"],
+            "description":  expense["description"],
+            "category":     category,
+            "expense_date": expense["expense_date"],
         })
 
     db.commit()
