@@ -23,22 +23,41 @@ _db = None
 
 
 def get_db():
-    """Return a cached libsql connection to the Turso cloud database."""
+    """
+    Return a cached libsql connection to the Turso cloud database.
+    Includes a health check — if the connection is stale (e.g. after
+    a Horizon container restart or Turso timeout), it reconnects automatically.
+    """
     global _db
+    url = os.environ.get("TURSO_DATABASE_URL")
+    token = os.environ.get("TURSO_AUTH_TOKEN", "")
+    if not url:
+        raise RuntimeError(
+            "TURSO_DATABASE_URL environment variable is not set. "
+            "Add it in your Horizon deployment settings."
+        )
+    if _db is not None:
+        # Health check: run a lightweight ping query
+        # If it fails, the connection is dead — reconnect
+        try:
+            _db.execute("SELECT 1")
+        except Exception:
+            _db = None  # discard stale connection
     if _db is None:
-        url = os.environ.get("TURSO_DATABASE_URL")
-        token = os.environ.get("TURSO_AUTH_TOKEN", "")
-        if not url:
-            raise RuntimeError(
-                "TURSO_DATABASE_URL environment variable is not set. "
-                "Add it in your Horizon deployment settings."
-            )
         _db = libsql.connect(url, auth_token=token)
     return _db
 
 
 def init_db():
-    """Create the expenses table if it does not already exist."""
+    """
+    Create the expenses table and indexes if they do not already exist.
+    Indexes added:
+      - idx_expense_date  : speeds up date filtering, monthly/weekly summaries
+      - idx_category      : speeds up category grouping and delete-by-category
+      - idx_description   : speeds up keyword search on description
+    Without indexes every query does a full table scan — O(n) per query.
+    With indexes queries are O(log n) — 10-100x faster as data grows.
+    """
     db = get_db()
     db.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
@@ -50,6 +69,20 @@ def init_db():
             created_at   TEXT    NOT NULL
         )
     """)
+    # Index on expense_date — used by: get_expenses_by_date, monthly_summary,
+    # weekly_summary, yearly_summary, spending_analytics, delete_expenses_by_date
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_expense_date ON expenses (expense_date)"
+    )
+    # Index on category — used by: monthly_summary, spending_analytics,
+    # delete_expenses_by_category, search_expenses
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_category ON expenses (category)"
+    )
+    # Index on description — used by: search_expenses, delete_expenses_by_description
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_description ON expenses (description)"
+    )
     db.commit()
 
 
@@ -181,7 +214,7 @@ def detect_categories_batch(descriptions: list) -> list:
             temperature=0.2,
             top_p=0.7,
             # Each category is ~2-3 tokens; 100 categories = ~300 tokens max
-            max_completion_tokens=500,
+            max_completion_tokens=1024,
         )
         category_list = ", ".join(VALID_CATEGORIES)
         numbered = "\n".join(f"{i+1}. {d}" for i, d in enumerate(descriptions))
@@ -432,13 +465,25 @@ def add_bulk_expenses(expenses: list):
 
 
 @mcp.tool()
-def get_all_expenses():
-    """Get all expenses sorted by latest date."""
+def get_all_expenses(limit: int = 200):
+    """
+    Get expenses sorted by latest date.
+    limit: max number of rows to return (default 200, max 1000).
+    Use a smaller limit for faster responses, larger for full exports.
+    Without a limit, large datasets would overflow ChatGPT's context window.
+    """
+    limit = max(1, min(limit, 1000))  # clamp between 1 and 1000
     db = get_db()
     cur = db.execute(
-        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC"
+        "SELECT * FROM expenses ORDER BY expense_date DESC, id DESC LIMIT ?",
+        (limit,),
     )
-    return [row_to_dict(row) for row in cur.fetchall()]
+    rows = cur.fetchall()
+    return {
+        "count": len(rows),
+        "limit": limit,
+        "expenses": [row_to_dict(row) for row in rows],
+    }
 
 
 @mcp.tool()
@@ -489,16 +534,23 @@ def monthly_summary(month: str = None):
     if month is None:
         month = datetime.now().strftime("%Y-%m")
 
+    # Use date range instead of LIKE so the idx_expense_date index is used
+    year_str, month_str = month.split("-")
+    import calendar
+    last_day = calendar.monthrange(int(year_str), int(month_str))[1]
+    start_date = f"{month}-01"
+    end_date   = f"{month}-{last_day:02d}"
+
     db = get_db()
     cur = db.execute(
         """
         SELECT category, SUM(amount), COUNT(*)
         FROM expenses
-        WHERE expense_date LIKE ?
+        WHERE expense_date >= ? AND expense_date <= ?
         GROUP BY category
         ORDER BY SUM(amount) DESC
         """,
-        (month + "%",),
+        (start_date, end_date),
     )
     rows = cur.fetchall()
 
@@ -511,6 +563,8 @@ def monthly_summary(month: str = None):
 
     return {
         "month":         month,
+        "start_date":    start_date,
+        "end_date":      end_date,
         "total_expense": round(total, 2),
         "categories":    categories,
     }
@@ -563,18 +617,22 @@ def yearly_summary(year: str = None):
     if year is None:
         year = str(datetime.now().year)
 
+    # Use date range instead of LIKE so the idx_expense_date index is used
+    start_date = f"{year}-01-01"
+    end_date   = f"{year}-12-31"
+
     db = get_db()
     cur = db.execute(
         """
-        SELECT strftime('%Y-%m', expense_date) as month,
+        SELECT strftime('%Y-%m', expense_date) AS month,
                SUM(amount),
                COUNT(*)
         FROM expenses
-        WHERE expense_date LIKE ?
+        WHERE expense_date >= ? AND expense_date <= ?
         GROUP BY month
         ORDER BY month
         """,
-        (year + "%",),
+        (start_date, end_date),
     )
     rows = cur.fetchall()
 
