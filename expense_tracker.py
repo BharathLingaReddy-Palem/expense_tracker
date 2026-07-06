@@ -136,7 +136,7 @@ def detect_category_ai(description: str) -> str:
             api_key=api_key,
             temperature=0.2,
             top_p=0.7,
-            max_completion_tokens=20,  # only need a short category name back
+            max_completion_tokens=50,  # category name is 1-3 tokens; 50 gives safe headroom
         )
         category_list = ", ".join(VALID_CATEGORIES)
         prompt = (
@@ -162,9 +162,13 @@ def detect_category_ai(description: str) -> str:
         return detect_category_keyword(description)
 
 
-def detect_category(description: str) -> str:
-    """Detect category — uses AI if NVIDIA_API_KEY is set, else keyword matching."""
-    if os.environ.get("NVIDIA_API_KEY"):
+def detect_category(description: str, use_ai: bool = True) -> str:
+    """
+    Detect category.
+    - use_ai=True (default): uses NVIDIA NIM if key is set (for single expense adds)
+    - use_ai=False: always uses keyword matching (for bulk adds to avoid 40 RPM limit)
+    """
+    if use_ai and os.environ.get("NVIDIA_API_KEY"):
         return detect_category_ai(description)
     return detect_category_keyword(description)
 
@@ -313,7 +317,7 @@ def add_bulk_expenses(expenses: list):
             errors.append({"index": index, "description": description, "error": "Invalid date format, use YYYY-MM-DD"})
             continue
 
-        category = detect_category(description)
+        category = detect_category(description, use_ai=False)  # skip AI in bulk to avoid 40 RPM rate limit
         cur = db.execute(
             "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
             (amount, description, category, expense_date, now),
