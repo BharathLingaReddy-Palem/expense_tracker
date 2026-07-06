@@ -4,7 +4,7 @@ import libsql
 from datetime import datetime, timedelta
 from difflib import get_close_matches
 from dotenv import load_dotenv
-from openai import OpenAI
+from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 load_dotenv()  # loads .env file automatically (works locally and on Horizon)
 
@@ -125,39 +125,37 @@ def detect_category_keyword(description: str) -> str:
 
 
 def detect_category_ai(description: str) -> str:
-    """AI-powered category detection using NVIDIA NIM API."""
+    """AI-powered category detection using NVIDIA NIM via LangChain."""
     api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
         return detect_category_keyword(description)
 
     try:
-        client = OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
+        client = ChatNVIDIA(
+            model="meta/llama-3.1-8b-instruct",
             api_key=api_key,
+            temperature=0.2,
+            top_p=0.7,
+            max_completion_tokens=20,  # only need a short category name back
         )
         category_list = ", ".join(VALID_CATEGORIES)
-        response = client.chat.completions.create(
-            model="meta/llama-3.1-8b-instruct",
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Categorize this expense into exactly one of these categories: "
-                    f"{category_list}.\n"
-                    f"Expense: '{description}'\n"
-                    f"Reply with ONLY the category name, nothing else."
-                )
-            }],
-            max_tokens=10,
-            temperature=0.1,
+        prompt = (
+            f"Categorize this expense into exactly one of these categories: "
+            f"{category_list}.\n"
+            f"Expense: '{description}'\n"
+            f"Reply with ONLY the category name, nothing else."
         )
-        result = response.choices[0].message.content.strip().lower()
+        response = client.invoke([{"role": "user", "content": prompt}])
+        result = response.content.strip().lower()
+
         # Validate the AI response is a known category
         if result in VALID_CATEGORIES:
             return result
-        # Try partial match
+        # Try partial match in case model adds extra words
         for cat in VALID_CATEGORIES:
             if cat in result:
                 return cat
+        # Fallback if response is unrecognised
         return detect_category_keyword(description)
     except Exception:
         # Fallback to keyword matching if AI call fails
