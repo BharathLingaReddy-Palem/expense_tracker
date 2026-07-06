@@ -278,6 +278,8 @@ def add_bulk_expenses(expenses: list):
     Add multiple expenses at once (maximum 100 at a time).
     Each expense must be a dict with: amount, description, and optionally expense_date.
     Example: [{"amount": 100, "description": "lunch"}, {"amount": 50, "description": "tea"}]
+    AI categorization is used for batches of 40 or fewer (safe within 40 RPM limit).
+    Larger batches (41-100) use fast keyword matching instead.
     """
     if not expenses:
         return {"success": False, "error": "Expenses list cannot be empty"}
@@ -317,7 +319,10 @@ def add_bulk_expenses(expenses: list):
             errors.append({"index": index, "description": description, "error": "Invalid date format, use YYYY-MM-DD"})
             continue
 
-        category = detect_category(description, use_ai=False)  # skip AI in bulk to avoid 40 RPM rate limit
+        # Use AI for small batches (≤40) — safe within 40 RPM limit
+        # Use keyword matching for large batches (>40) — avoids rate limit
+        use_ai_for_this_batch = len(expenses) <= 40
+        category = detect_category(description, use_ai=use_ai_for_this_batch)
         cur = db.execute(
             "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
             (amount, description, category, expense_date, now),
