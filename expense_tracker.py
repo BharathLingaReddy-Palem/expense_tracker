@@ -447,11 +447,13 @@ def add_expense(
     user_token: str,
     amount: float,
     description: str,
+    category: str = None,
     expense_date: str = None,
 ):
     """
     Add a single new expense.
-    Category is automatically detected from the description (AI-powered if NVIDIA key is set).
+    category is optional. If provided, it MUST be one of the VALID_CATEGORIES.
+    If category is omitted, it will be automatically detected from the description (slower).
     expense_date must be in YYYY-MM-DD format (defaults to today).
     Amount must be positive.
     """
@@ -471,7 +473,12 @@ def add_expense(
     if not validate_date(expense_date):
         return {"success": False, "error": "Date must be in YYYY-MM-DD format"}
 
-    category = detect_category(description.strip())
+    if category is not None:
+        category = category.strip().lower()
+        if category not in VALID_CATEGORIES:
+            return {"success": False, "error": f"Invalid category. Valid: {', '.join(VALID_CATEGORIES)}"}
+    else:
+        category = detect_category(description.strip())
     db = get_db()
     user_id = validate_token(user_token)
 
