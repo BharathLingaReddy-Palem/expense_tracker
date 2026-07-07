@@ -258,6 +258,24 @@ CATEGORIES = {
         "course", "books", "college", "fees", "tuition",
         "udemy", "coursera", "stationery", "notebook", "pen"
     ],
+    "rent": [
+        "rent", "lease", "deposit", "landlord", "pg", "hostel"
+    ],
+    "investments": [
+        "stocks", "mutual funds", "sip", "crypto", "gold", "fd"
+    ],
+    "personal_care": [
+        "salon", "haircut", "spa", "cosmetics", "skincare", "makeup"
+    ],
+    "gifts": [
+        "gift", "donation", "charity", "wedding", "birthday"
+    ],
+    "subscriptions": [
+        "subscription", "gym", "membership", "software"
+    ],
+    "travel": [
+        "hotel", "flight", "airbnb", "holiday", "vacation", "trip"
+    ],
     "other": []
 }
 
@@ -447,13 +465,11 @@ def add_expense(
     user_token: str,
     amount: float,
     description: str,
-    category: str = None,
     expense_date: str = None,
 ):
     """
     Add a single new expense.
-    category is optional. If provided, it MUST be one of the VALID_CATEGORIES.
-    If category is omitted, it will be automatically detected from the description (slower).
+    Category is automatically detected from the description (AI-powered if NVIDIA key is set).
     expense_date must be in YYYY-MM-DD format (defaults to today).
     Amount must be positive.
     """
@@ -473,12 +489,7 @@ def add_expense(
     if not validate_date(expense_date):
         return {"success": False, "error": "Date must be in YYYY-MM-DD format"}
 
-    if category is not None:
-        category = category.strip().lower()
-        if category not in VALID_CATEGORIES:
-            return {"success": False, "error": f"Invalid category. Valid: {', '.join(VALID_CATEGORIES)}"}
-    else:
-        category = detect_category(description.strip())
+    category = detect_category(description.strip())
     db = get_db()
     user_id = validate_token(user_token)
 
