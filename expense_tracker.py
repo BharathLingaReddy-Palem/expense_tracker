@@ -770,6 +770,7 @@ def yearly_summary(user_token: str, year: str = None):
 def spending_analytics(user_token: str):
     """
     Get smart spending insights:
+    - Total Income vs Total Expenses -> Net Savings & Savings Rate
     - Daily average this month
     - Top spending category
     - Biggest single expense ever
@@ -777,13 +778,28 @@ def spending_analytics(user_token: str):
     - Spending this week vs last week
     """
     db = get_db()
+    user_id = validate_token(user_token)
     today = datetime.now().date()
     month = datetime.now().strftime("%Y-%m")
 
+    # Total Income
+    cur = db.execute("SELECT SUM(amount) FROM income WHERE user_id = ? AND is_deleted = 0", (user_id,))
+    total_income = cur.fetchone()[0] or 0.0
+
+    # Total expenses count and sum
+    cur = db.execute("SELECT COUNT(*), SUM(amount) FROM expenses WHERE user_id = ? AND is_deleted = 0", (user_id,))
+    r = cur.fetchone()
+    total_count = int(r[0] or 0)
+    total_expenses = float(r[1] or 0.0)
+
+    # Net Savings & Savings Rate
+    net_savings = total_income - total_expenses
+    savings_rate = round((net_savings / total_income * 100), 2) if total_income > 0 else 0.0
+
     # Daily average this month
     cur = db.execute(
-        "SELECT SUM(amount), COUNT(DISTINCT expense_date) FROM expenses WHERE expense_date LIKE ?",
-        (month + "%",)
+        "SELECT SUM(amount), COUNT(DISTINCT expense_date) FROM expenses WHERE user_id = ? AND is_deleted = 0 AND expense_date LIKE ?",
+        (user_id, month + "%")
     )
     r = cur.fetchone()
     monthly_total = float(r[0] or 0)
@@ -792,24 +808,19 @@ def spending_analytics(user_token: str):
 
     # Top spending category this month
     cur = db.execute(
-        "SELECT category, SUM(amount) as total FROM expenses WHERE expense_date LIKE ? GROUP BY category ORDER BY total DESC LIMIT 1",
-        (month + "%",)
+        "SELECT category, SUM(amount) as total FROM expenses WHERE user_id = ? AND is_deleted = 0 AND expense_date LIKE ? GROUP BY category ORDER BY total DESC LIMIT 1",
+        (user_id, month + "%")
     )
     top = cur.fetchone()
     top_category = {"category": top[0], "amount": float(top[1])} if top else None
 
     # Biggest single expense ever
     cur = db.execute(
-        "SELECT id, amount, description, expense_date FROM expenses ORDER BY amount DESC LIMIT 1"
+        "SELECT id, amount, description, expense_date FROM expenses WHERE user_id = ? AND is_deleted = 0 ORDER BY amount DESC LIMIT 1",
+        (user_id,)
     )
     big = cur.fetchone()
     biggest = {"id": big[0], "amount": float(big[1]), "description": big[2], "date": big[3]} if big else None
-
-    # Total expenses count and sum
-    cur = db.execute("SELECT COUNT(*), SUM(amount) FROM expenses")
-    r = cur.fetchone()
-    total_count = int(r[0] or 0)
-    total_ever = round(float(r[1] or 0), 2)
 
     # This week vs last week
     monday_this = today - timedelta(days=today.weekday())
@@ -817,14 +828,14 @@ def spending_analytics(user_token: str):
     sunday_last = monday_this - timedelta(days=1)
 
     cur = db.execute(
-        "SELECT SUM(amount) FROM expenses WHERE expense_date >= ? AND expense_date <= ?",
-        (str(monday_this), str(today))
+        "SELECT SUM(amount) FROM expenses WHERE user_id = ? AND is_deleted = 0 AND expense_date >= ? AND expense_date <= ?",
+        (user_id, str(monday_this), str(today))
     )
     this_week = round(float(cur.fetchone()[0] or 0), 2)
 
     cur = db.execute(
-        "SELECT SUM(amount) FROM expenses WHERE expense_date >= ? AND expense_date <= ?",
-        (str(monday_last), str(sunday_last))
+        "SELECT SUM(amount) FROM expenses WHERE user_id = ? AND is_deleted = 0 AND expense_date >= ? AND expense_date <= ?",
+        (user_id, str(monday_last), str(sunday_last))
     )
     last_week = round(float(cur.fetchone()[0] or 0), 2)
 
@@ -832,6 +843,12 @@ def spending_analytics(user_token: str):
     week_change_pct = round((week_change / last_week * 100), 1) if last_week > 0 else None
 
     return {
+        "wealth_summary": {
+            "total_income": round(total_income, 2),
+            "total_expenses": round(total_expenses, 2),
+            "net_savings": round(net_savings, 2),
+            "savings_rate_percent": savings_rate
+        },
         "this_month":        month,
         "monthly_total":     round(monthly_total, 2),
         "daily_average":     daily_avg,
