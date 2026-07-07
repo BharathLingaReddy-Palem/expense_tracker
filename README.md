@@ -21,9 +21,10 @@ Turso Cloud DB      ←── 3 persistent tables: expenses, budgets, reminders
 ## ✨ Features
 
 - ✅ **Multi-User Architecture** — Single unified URL, multiple users, perfectly isolated data
-- ✅ **29 MCP tools** — register, add, read, update, trash, delete, analytics, budgets, reminders, income
+- ✅ **30 MCP tools** — register, add, read, update, trash, delete, analytics, budgets, reminders, income, export
 - ✅ **Wealth Management** — Track income, expenses, Net Savings, and Savings Rate %
 - ✅ **Enterprise Soft Deletes** — Built-in Trash Can prevents accidental data loss
+- ✅ **CSV Exports** — Pull all your data instantly into Excel or Google Sheets
 - ✅ **AI-powered batch categorization** — ONE NVIDIA NIM call categorizes all bulk expenses
 - ✅ **Persistent cloud database** — Turso (libsql) with 4 tables, survives restarts
 - ✅ **4 DB indexes** — 10–100x faster queries on user_id, date, category, description
@@ -54,7 +55,7 @@ Done! 3 total operations regardless of batch size.
 
 ---
 
-## 🛠️ All 29 MCP Tools
+## 🛠️ All 30 MCP Tools
 
 > **Note on Multi-User Auth:** Every tool requires a `user_token`. ChatGPT automatically handles passing this token for you once you register and tell it to memorize the token.
 
@@ -276,6 +277,17 @@ Show all reminders due within the next N days (default 7). Sorted by urgency.
 
 #### 29. `delete_reminder(user_token, reminder_id)`
 Permanently delete a reminder by its ID.
+
+---
+
+### 📥 Export Tools (1)
+
+#### 30. `export_to_csv(user_token, year?, month?)`
+Export your active expenses to raw CSV format. ChatGPT will automatically present this to you as a downloadable `.csv` file.
+```
+"Export my July 2026 expenses to a CSV file"
+→ export_to_csv(year="2026", month="07")
+```
 ```
 "Delete the rent reminder"
 → first: get_upcoming_reminders() to find ID

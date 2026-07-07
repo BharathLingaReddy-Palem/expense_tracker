@@ -1507,3 +1507,51 @@ def delete_income(user_token: str, income_id: int):
     if cur.rowcount == 0:
         return {"success": False, "error": f"Income ID {income_id} not found."}
     return {"success": True, "message": f"Income {income_id} moved to trash."}
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools - EXPORT
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def export_to_csv(user_token: str, year: str = None, month: str = None):
+    """
+    Export expenses to CSV format. 
+    Can filter by year (e.g. '2026') and/or month (e.g. '07').
+    Returns the raw CSV string.
+    """
+    import csv
+    import io
+    db = get_db()
+    user_id = validate_token(user_token)
+    
+    query = "SELECT id, amount, description, category, expense_date FROM expenses WHERE user_id = ? AND is_deleted = 0"
+    params = [user_id]
+    
+    if year:
+        query += " AND substr(expense_date, 1, 4) = ?"
+        params.append(year)
+    if month:
+        # Ensures month is 2 digits
+        month = str(month).zfill(2)
+        query += " AND substr(expense_date, 6, 2) = ?"
+        params.append(month)
+        
+    query += " ORDER BY expense_date DESC"
+    
+    cur = db.execute(query, params)
+    rows = cur.fetchall()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Header
+    writer.writerow(["ID", "Date", "Category", "Amount", "Description"])
+    
+    # Rows
+    for r in rows:
+        writer.writerow([r[0], r[4], r[3], r[1], r[2]])
+        
+    return {
+        "count": len(rows),
+        "csv_content": output.getvalue()
+    }
