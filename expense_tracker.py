@@ -446,7 +446,7 @@ def detect_category_ai(description: str) -> str:
 
     try:
         client = ChatNVIDIA(
-            model="qwen/qwen3.5-122b-a10b",
+            model="meta/llama-3.1-8b-instruct",
             api_key=api_key,
             temperature=0.1,
             top_p=0.1,  # Low top_p for deterministic classification
@@ -482,7 +482,7 @@ def detect_categories_batch(descriptions: list) -> list:
 
     try:
         client = ChatNVIDIA(
-            model="qwen/qwen3.5-122b-a10b",
+            model="meta/llama-3.1-8b-instruct",
             api_key=api_key,
             temperature=0.1,
             top_p=0.1,
