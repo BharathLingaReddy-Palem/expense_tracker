@@ -159,6 +159,22 @@ def init_db():
         
     db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_user ON reminders (user_id)")
 
+    # 💵 income 💵
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS income (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL,
+            amount       REAL    NOT NULL,
+            source       TEXT    NOT NULL,
+            income_date  TEXT    NOT NULL,
+            created_at   TEXT    NOT NULL,
+            is_deleted   INTEGER DEFAULT 0,
+            deleted_at   TEXT
+        )
+    """)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_income_user ON income(user_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_income_date ON income(income_date)")
+
     # Create the default user if it doesn't exist so existing data doesn't orphan
     try:
         db.execute("INSERT OR IGNORE INTO users (id, name, user_token, created_at) VALUES (1, 'Default Owner', 'ut_default_owner', datetime('now'))")
@@ -855,8 +871,7 @@ def spending_analytics(user_token: str):
         "top_category":      top_category,
         "biggest_expense":   biggest,
         "total_expenses":    total_count,
-        "total_spent_ever":  total_ever,
-        "this_week":         this_week,
+        "this_week_spend":   this_week,
         "last_week":         last_week,
         "week_change":       week_change,
         "week_change_pct":   f"{'+' if week_change_pct and week_change_pct > 0 else ''}{week_change_pct}%" if week_change_pct is not None else "N/A",
@@ -1099,16 +1114,18 @@ def set_budget(user_token: str, category: str, amount: float):
     now = datetime.now().isoformat()
     db  = get_db()
 
+    user_id = validate_token(user_token)
+
     # UPSERT — insert new or update existing budget for this category
     db.execute(
         """
-        INSERT INTO budgets (category, amount, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(category) DO UPDATE SET
+        INSERT INTO budgets (user_id, category, amount, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, category) DO UPDATE SET
             amount     = excluded.amount,
             updated_at = excluded.updated_at
         """,
-        (category, amount, now, now),
+        (user_id, category, amount, now, now),
     )
     db.commit()
 
@@ -1222,6 +1239,7 @@ def delete_budget(user_token: str, category: str):
 
 @mcp.tool()
 def set_reminder(
+    user_token:    str,
     description:   str,
     due_date:      str   = None,
     amount:        float = None,
@@ -1264,13 +1282,15 @@ def set_reminder(
 
     now = datetime.now().isoformat()
     db  = get_db()
+    user_id = validate_token(user_token)
+
     cur = db.execute(
         """
         INSERT INTO reminders
-            (description, amount, due_date, is_recurring, recurring_day, is_done, created_at)
-        VALUES (?, ?, ?, ?, ?, 0, ?)
+            (user_id, description, amount, due_date, is_recurring, recurring_day, is_done, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
         """,
-        (description, amount, due_date, int(is_recurring), recurring_day, now),
+        (user_id, description, amount, due_date, int(is_recurring), recurring_day, now),
     )
     db.commit()
 
