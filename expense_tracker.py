@@ -1431,3 +1431,79 @@ def permanent_delete_expense(user_token: str, expense_id: int):
     if cur.rowcount == 0:
         return {"success": False, "error": f"Expense ID {expense_id} not found."}
     return {"success": True, "message": f"Expense {expense_id} permanently deleted."}
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools - INCOME
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def add_income(
+    user_token: str,
+    amount: float,
+    source: str,
+    income_date: str = None,
+):
+    """
+    Add a new income source (e.g. Salary, Freelance, Gift).
+    income_date must be in YYYY-MM-DD format (defaults to today).
+    Amount must be positive.
+    """
+    ok, err = validate_amount(amount)
+    if not ok: return {"success": False, "error": err}
+    if not source.strip(): return {"success": False, "error": "Source cannot be empty."}
+    
+    if income_date is None:
+        income_date = datetime.now().strftime("%Y-%m-%d")
+    if not validate_date(income_date):
+        return {"success": False, "error": "Date must be in YYYY-MM-DD format"}
+
+    db = get_db()
+    user_id = validate_token(user_token)
+
+    cur = db.execute(
+        """
+        INSERT INTO income (user_id, amount, source, income_date, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (user_id, amount, source.strip(), income_date, datetime.now().isoformat()),
+    )
+    db.commit()
+    return {
+        "success": True,
+        "income": {
+            "id":          cur.lastrowid,
+            "amount":      amount,
+            "source":      source.strip(),
+            "income_date": income_date,
+        },
+    }
+
+@mcp.tool()
+def get_income(user_token: str, limit: int = 50):
+    """Get recent income entries sorted by date."""
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute(
+        f"SELECT id, amount, source, income_date FROM income WHERE user_id = ? AND is_deleted = 0 ORDER BY income_date DESC LIMIT {limit}",
+        (user_id,)
+    )
+    rows = cur.fetchall()
+    return {
+        "count": len(rows),
+        "income": [{"id": r[0], "amount": r[1], "source": r[2], "income_date": r[3]} for r in rows]
+    }
+
+@mcp.tool()
+def delete_income(user_token: str, income_id: int):
+    """Soft delete an income entry by ID."""
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute(
+        "UPDATE income SET is_deleted = 1, deleted_at = datetime('now') WHERE id = ? AND user_id = ?", 
+        (income_id, user_id)
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        return {"success": False, "error": f"Income ID {income_id} not found."}
+    return {"success": True, "message": f"Income {income_id} moved to trash."}

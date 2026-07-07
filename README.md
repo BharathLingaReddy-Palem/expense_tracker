@@ -21,7 +21,8 @@ Turso Cloud DB      ←── 3 persistent tables: expenses, budgets, reminders
 ## ✨ Features
 
 - ✅ **Multi-User Architecture** — Single unified URL, multiple users, perfectly isolated data
-- ✅ **26 MCP tools** — register, add, read, update, trash, delete, analytics, budgets, reminders
+- ✅ **29 MCP tools** — register, add, read, update, trash, delete, analytics, budgets, reminders, income
+- ✅ **Wealth Management** — Track income, expenses, Net Savings, and Savings Rate %
 - ✅ **Enterprise Soft Deletes** — Built-in Trash Can prevents accidental data loss
 - ✅ **AI-powered batch categorization** — ONE NVIDIA NIM call categorizes all bulk expenses
 - ✅ **Persistent cloud database** — Turso (libsql) with 4 tables, survives restarts
@@ -53,7 +54,7 @@ Done! 3 total operations regardless of batch size.
 
 ---
 
-## 🛠️ All 26 MCP Tools
+## 🛠️ All 29 MCP Tools
 
 > **Note on Multi-User Auth:** Every tool requires a `user_token`. ChatGPT automatically handles passing this token for you once you register and tell it to memorize the token.
 
@@ -149,18 +150,51 @@ Smart insights — daily average, top category, biggest expense, week-over-week 
 
 ---
 
-### ✏️ Update Tool (1)
-
-#### 10. `update_expense(expense_id, amount?, description?, expense_date?, category?)`
-Update any field — pass only what you want to change.
+#### 7. `monthly_summary(user_token, month?)`
+See category totals for a given month (defaults to current month).
 ```
-"Fix expense 44 amount to 500"
-→ update_expense(expense_id=44, amount=500)
-
-"Change expense 44 description to chai and biscuits"
-→ update_expense(expense_id=44, description="chai and biscuits")
-  → category auto-updates to "food" via AI!
+"What did I spend on food this month?"
+→ {month: "2026-07", summary: [{category: "food", total: 450}, ...]}
 ```
+
+#### 8. `weekly_summary(user_token)`
+See category totals for the last 7 days.
+
+#### 9. `yearly_summary(user_token, year?)`
+See total spend per month for a given year (defaults to current year).
+
+#### 10. `spending_analytics(user_token)`
+The ultimate financial dashboard. Returns:
+- Total Income vs Total Expenses
+- **Net Savings** and **Savings Rate %**
+- Date range of records
+- Top spending category
+- Biggest single expense
+- This week vs last week spending comparison
+
+---
+
+### 💵 Income Tracking (3)
+
+#### 11. `add_income(user_token, amount, source, income_date?)`
+Add a new income source.
+```
+"Add my salary of Rs 50000"
+→ add_income(amount=50000.0, source="Salary")
+```
+
+#### 12. `get_income(user_token, limit?)`
+Get recent income entries sorted by date.
+
+#### 13. `delete_income(user_token, income_id)`
+Soft delete an income entry by ID.
+
+---
+
+### 🔄 Modify Tools (1)
+
+#### 14. `update_expense(user_token, expense_id, ...)`
+Update amount, description, category, or date for a specific expense.
 
 ---
 
@@ -168,16 +202,16 @@ Update any field — pass only what you want to change.
 
 > **Enterprise Safety:** Normal delete tools now perform a "Soft Delete" — moving items to the trash instead of destroying them immediately. You can view or restore trashed items.
 
-#### 12. `delete_expense(user_token, expense_id)` — Move one expense to trash
-#### 13. `bulk_delete_expenses(user_token, ids)` — Move multiple to trash
-#### 14. `delete_expenses_by_category(user_token, category)` — Trash all of a category (uses index)
-#### 15. `delete_expenses_by_description(user_token, keyword)` — Trash by keyword match
-#### 16. `delete_all_expenses(user_token, confirm)` — Trash everything (requires `confirm=True`)
+#### 15. `delete_expense(user_token, expense_id)` — Move one expense to trash
+#### 16. `bulk_delete_expenses(user_token, ids)` — Move multiple to trash
+#### 17. `delete_expenses_by_category(user_token, category)` — Trash all of a category (uses index)
+#### 18. `delete_expenses_by_description(user_token, keyword)` — Trash by keyword match
+#### 19. `delete_all_expenses(user_token, confirm)` — Trash everything (requires `confirm=True`)
 
-#### 17. `get_trash(user_token)` — View all soft-deleted expenses
-#### 18. `restore_expense(user_token, expense_id)` — Move an expense from trash back to active
-#### 19. `empty_trash(user_token, confirm=True)` — Permanently wipe the trash from database
-#### 20. `permanent_delete_expense(user_token, expense_id)` — Bypass trash and destroy immediately
+#### 20. `get_trash(user_token)` — View all soft-deleted expenses
+#### 21. `restore_expense(user_token, expense_id)` — Move an expense from trash back to active
+#### 22. `empty_trash(user_token, confirm=True)` — Permanently wipe the trash from database
+#### 23. `permanent_delete_expense(user_token, expense_id)` — Bypass trash and destroy immediately
 
 ---
 
@@ -185,35 +219,27 @@ Update any field — pass only what you want to change.
 
 Budgets are set **once per category** and apply to **every future month automatically** — no monthly reset needed.
 
-#### 21. `set_budget(user_token, category, amount)`
+#### 24. `set_budget(user_token, category, amount)`
 Create or update a budget. Works as an upsert — calling again updates the amount.
 ```
 "Set my food budget to Rs 3000"
 → set_budget("food", 3000)
-→ "Budget set: Rs 3000/month for 'food'. Applies every month automatically."
-
-"Increase food budget to Rs 4000"
+"Wait, increase it to 4000"
 → set_budget("food", 4000)   ← updates existing, no duplicate
 ```
 
-#### 22. `get_budget_status(user_token, month?)`
+#### 25. `get_budget_status(user_token, month?)`
 Show current month's spending vs budget for all categories.
 ```
 "How's my budget this month?"
-→ get_budget_status()
-→ {
-    food:           {budget: 3000, spent: 1800, remaining: 1200, percent: 60, status: "OK"},
-    transport:      {budget: 1500, spent: 1600, remaining: -100, percent: 107, status: "OVER BUDGET"},
-    entertainment:  {budget: 500,  spent: 420,  remaining: 80,   percent: 84,  status: "WARNING — near limit"}
-  }
+→ {category: "food", budget: 4000, spent: 450, remaining: 3550, status: "SAFE"}
 ```
-
-Status flags:
-- `OK` — under 80% of budget
+Returns one of three statuses:
+- `SAFE` — under 80% used
 - `WARNING — near limit` — 80–99% used
 - `OVER BUDGET` — 100%+ exceeded
 
-#### 23. `delete_budget(user_token, category)`
+#### 26. `delete_budget(user_token, category)`
 Remove a budget. No limit will be applied for that category after.
 ```
 "Remove my entertainment budget"
@@ -224,7 +250,7 @@ Remove a budget. No limit will be applied for that category after.
 
 ### 📅 Reminders (3)
 
-#### 24. `set_reminder(user_token, description, due_date?, amount?, is_recurring?, recurring_day?)`
+#### 27. `set_reminder(user_token, description, due_date?, amount?, is_recurring?, recurring_day?)`
 Set a one-time or monthly recurring payment reminder.
 ```
 One-time:
@@ -237,7 +263,7 @@ Monthly recurring:
   ← stored once, triggers every month forever
 ```
 
-#### 25. `get_upcoming_reminders(user_token, days?)`
+#### 28. `get_upcoming_reminders(user_token, days?)`
 Show all reminders due within the next N days (default 7). Sorted by urgency.
 ```
 "What payments are due this week?"
@@ -248,7 +274,7 @@ Show all reminders due within the next N days (default 7). Sorted by urgency.
   ]
 ```
 
-#### 26. `delete_reminder(user_token, reminder_id)`
+#### 29. `delete_reminder(user_token, reminder_id)`
 Permanently delete a reminder by its ID.
 ```
 "Delete the rent reminder"
