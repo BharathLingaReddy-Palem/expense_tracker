@@ -73,7 +73,9 @@ def init_db():
             description  TEXT    NOT NULL,
             category     TEXT    NOT NULL,
             expense_date TEXT    NOT NULL,
-            created_at   TEXT    NOT NULL
+            created_at   TEXT    NOT NULL,
+            is_deleted   INTEGER DEFAULT 0,
+            deleted_at   TEXT
         )
     """)
     
@@ -82,6 +84,12 @@ def init_db():
         db.execute("ALTER TABLE expenses ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
     except Exception:
         pass # Column likely already exists
+
+    try:
+        db.execute("ALTER TABLE expenses ADD COLUMN is_deleted INTEGER DEFAULT 0")
+        db.execute("ALTER TABLE expenses ADD COLUMN deleted_at TEXT")
+    except Exception:
+        pass
 
     db.execute("CREATE INDEX IF NOT EXISTS idx_expense_date ON expenses (expense_date)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_category ON expenses (category)")
@@ -926,7 +934,7 @@ def delete_expense(user_token: str, expense_id: int):
     """Delete a single expense by its ID."""
     db = get_db()
     user_id = validate_token(user_token)
-    cur = db.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id))
+    cur = db.execute("UPDATE expenses SET is_deleted = 1, deleted_at = datetime('now') WHERE id = ? AND user_id = ?", (expense_id, user_id))
     db.commit()
 
     if cur.rowcount == 0:
@@ -1369,3 +1377,57 @@ def delete_reminder(user_token: str, reminder_id: int):
 
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)
+
+@mcp.tool()
+def get_trash(user_token: str):
+    """View all expenses that have been soft-deleted (moved to trash)."""
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute(
+        "SELECT id, amount, description, category, expense_date, deleted_at FROM expenses WHERE user_id = ? AND is_deleted = 1 ORDER BY deleted_at DESC",
+        (user_id,)
+    )
+    rows = cur.fetchall()
+    return {
+        "count": len(rows),
+        "trash": [
+            {"id": r[0], "amount": r[1], "description": r[2], "category": r[3], "expense_date": r[4], "deleted_at": r[5]}
+            for r in rows
+        ]
+    }
+
+@mcp.tool()
+def restore_expense(user_token: str, expense_id: int):
+    """Restore an expense from the trash back to active expenses."""
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute(
+        "UPDATE expenses SET is_deleted = 0, deleted_at = NULL WHERE id = ? AND user_id = ? AND is_deleted = 1",
+        (expense_id, user_id)
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        return {"success": False, "error": f"Expense ID {expense_id} not found in trash."}
+    return {"success": True, "message": f"Expense {expense_id} successfully restored."}
+
+@mcp.tool()
+def empty_trash(user_token: str, confirm: bool = False):
+    """Permanently delete all expenses currently in the trash. Requires confirm=True."""
+    if not confirm:
+        return {"error": "You must set confirm=True to permanently empty the trash."}
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute("DELETE FROM expenses WHERE user_id = ? AND is_deleted = 1", (user_id,))
+    db.commit()
+    return {"success": True, "message": f"Permanently deleted {cur.rowcount} items from trash."}
+
+@mcp.tool()
+def permanent_delete_expense(user_token: str, expense_id: int):
+    """Permanently delete a specific expense by ID, bypassing the trash can."""
+    db = get_db()
+    user_id = validate_token(user_token)
+    cur = db.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id))
+    db.commit()
+    if cur.rowcount == 0:
+        return {"success": False, "error": f"Expense ID {expense_id} not found."}
+    return {"success": True, "message": f"Expense {expense_id} permanently deleted."}

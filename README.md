@@ -21,7 +21,8 @@ Turso Cloud DB      ←── 3 persistent tables: expenses, budgets, reminders
 ## ✨ Features
 
 - ✅ **Multi-User Architecture** — Single unified URL, multiple users, perfectly isolated data
-- ✅ **22 MCP tools** — register, add, read, update, delete, analytics, budgets, reminders
+- ✅ **26 MCP tools** — register, add, read, update, trash, delete, analytics, budgets, reminders
+- ✅ **Enterprise Soft Deletes** — Built-in Trash Can prevents accidental data loss
 - ✅ **AI-powered batch categorization** — ONE NVIDIA NIM call categorizes all bulk expenses
 - ✅ **Persistent cloud database** — Turso (libsql) with 4 tables, survives restarts
 - ✅ **4 DB indexes** — 10–100x faster queries on user_id, date, category, description
@@ -52,7 +53,7 @@ Done! 3 total operations regardless of batch size.
 
 ---
 
-## 🛠️ All 22 MCP Tools
+## 🛠️ All 26 MCP Tools
 
 > **Note on Multi-User Auth:** Every tool requires a `user_token`. ChatGPT automatically handles passing this token for you once you register and tell it to memorize the token.
 
@@ -163,13 +164,20 @@ Update any field — pass only what you want to change.
 
 ---
 
-### 🗑️ Delete Tools (5)
+### 🗑️ Trash & Delete Tools (9)
 
-#### 11. `delete_expense(expense_id)` — Delete one by ID
-#### 12. `bulk_delete_expenses(ids)` — Delete multiple by list of IDs
-#### 13. `delete_expenses_by_category(category)` — Wipe all of a category (uses index)
-#### 14. `delete_expenses_by_description(keyword)` — Delete by keyword match
-#### 15. `delete_all_expenses(confirm)` — Wipe everything (requires `confirm=True`)
+> **Enterprise Safety:** Normal delete tools now perform a "Soft Delete" — moving items to the trash instead of destroying them immediately. You can view or restore trashed items.
+
+#### 12. `delete_expense(user_token, expense_id)` — Move one expense to trash
+#### 13. `bulk_delete_expenses(user_token, ids)` — Move multiple to trash
+#### 14. `delete_expenses_by_category(user_token, category)` — Trash all of a category (uses index)
+#### 15. `delete_expenses_by_description(user_token, keyword)` — Trash by keyword match
+#### 16. `delete_all_expenses(user_token, confirm)` — Trash everything (requires `confirm=True`)
+
+#### 17. `get_trash(user_token)` — View all soft-deleted expenses
+#### 18. `restore_expense(user_token, expense_id)` — Move an expense from trash back to active
+#### 19. `empty_trash(user_token, confirm=True)` — Permanently wipe the trash from database
+#### 20. `permanent_delete_expense(user_token, expense_id)` — Bypass trash and destroy immediately
 
 ---
 
@@ -177,7 +185,7 @@ Update any field — pass only what you want to change.
 
 Budgets are set **once per category** and apply to **every future month automatically** — no monthly reset needed.
 
-#### 16. `set_budget(category, amount)`
+#### 21. `set_budget(user_token, category, amount)`
 Create or update a budget. Works as an upsert — calling again updates the amount.
 ```
 "Set my food budget to Rs 3000"
@@ -188,7 +196,7 @@ Create or update a budget. Works as an upsert — calling again updates the amou
 → set_budget("food", 4000)   ← updates existing, no duplicate
 ```
 
-#### 17. `get_budget_status(month?)`
+#### 22. `get_budget_status(user_token, month?)`
 Show current month's spending vs budget for all categories.
 ```
 "How's my budget this month?"
@@ -205,7 +213,7 @@ Status flags:
 - `WARNING — near limit` — 80–99% used
 - `OVER BUDGET` — 100%+ exceeded
 
-#### 18. `delete_budget(category)`
+#### 23. `delete_budget(user_token, category)`
 Remove a budget. No limit will be applied for that category after.
 ```
 "Remove my entertainment budget"
@@ -216,7 +224,7 @@ Remove a budget. No limit will be applied for that category after.
 
 ### 📅 Reminders (3)
 
-#### 19. `set_reminder(description, due_date?, amount?, is_recurring?, recurring_day?)`
+#### 24. `set_reminder(user_token, description, due_date?, amount?, is_recurring?, recurring_day?)`
 Set a one-time or monthly recurring payment reminder.
 ```
 One-time:
@@ -229,7 +237,7 @@ Monthly recurring:
   ← stored once, triggers every month forever
 ```
 
-#### 20. `get_upcoming_reminders(days?)`
+#### 25. `get_upcoming_reminders(user_token, days?)`
 Show all reminders due within the next N days (default 7). Sorted by urgency.
 ```
 "What payments are due this week?"
@@ -240,7 +248,7 @@ Show all reminders due within the next N days (default 7). Sorted by urgency.
   ]
 ```
 
-#### 21. `delete_reminder(reminder_id)`
+#### 26. `delete_reminder(user_token, reminder_id)`
 Permanently delete a reminder by its ID.
 ```
 "Delete the rent reminder"
