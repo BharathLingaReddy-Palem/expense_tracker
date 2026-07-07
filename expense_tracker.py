@@ -223,59 +223,119 @@ def register_user(name: str):
 
 CATEGORIES = {
     "food": [
-        "food", "dinner", "lunch", "breakfast",
-        "restaurant", "hotel", "tea", "coffee", "snacks",
-        "swiggy", "zomato", "biryani", "pizza", "burger",
-        "shawarma", "juice", "ice cream", "cake", "chai","drink"
-    ],
+    "food","meal","lunch","dinner","breakfast","brunch","snacks","snack",
+    "tea","chai","coffee","cold coffee","juice","shake","lassi","milkshake",
+    "soft drink","drink","coke","pepsi","sprite","fanta","water","mineral water",
+    "pizza","burger","biryani","shawarma","fried rice","noodles","momos",
+    "dosa","idli","vada","poori","chapati","roti","naan","paratha",
+    "paneer","chicken","mutton","fish","egg","omelette",
+    "ice cream","icecream","ice-cream","kulfi",
+    "cake","pastry","sweet","sweets","chocolate","dairy milk","kitkat",
+    "panipuri","pani puri","golgappa","golgappe","phuchka",
+    "bhel","sev puri","pav bhaji","vada pav","samosa","kachori",
+    "restaurant","hotel","dhaba","canteen","mess","cafe","bakery",
+    "swiggy","zomato","dominos","pizza hut","kfc","mcdonalds",
+    "burger king","subway","starbucks","barista","wow momo",
+    "eatclub","faasos","behrouz","box8","eatfit","freshmenu"
+],
     "transport": [
-        "cab", "uber", "rapido", "auto", "bus",
-        "train", "metro", "petrol", "diesel", "ola",
-        "flight", "ticket", "fare", "toll", "parking"
-    ],
+    "petrol","diesel","fuel","cng","ev charging",
+    "uber","ola","rapido","auto","bus","metro","train",
+    "flight","taxi","cab","rickshaw",
+    "ticket","fare","toll","parking",
+    "fastag","tyre","service","repair","bike service",
+    "engine oil","puncture","car wash","washing",
+    "helmet","insurance","rc","license"
+],
     "groceries": [
-        "grocery", "groceries", "vegetables", "rice",
-        "milk", "fruits", "dal", "oil", "bigbasket",
-        "blinkit", "zepto", "dmart", "supermarket"
-    ],
+    "grocery","groceries","vegetables","fruits","milk","curd","butter",
+    "bread","rice","wheat","atta","flour","dal","lentils",
+    "oil","ghee","salt","sugar","spices","masala",
+    "egg","paneer","chicken","fish",
+    "soap","detergent","toothpaste","toothbrush",
+    "tissue","cleaner","phenyl",
+    "bigbasket","blinkit","zepto","instamart",
+    "dmart","reliance smart","more","supermarket",
+    "kirana","grocery store"
+],
     "entertainment": [
-        "movie", "netflix", "prime", "game", "spotify",
-        "hotstar", "youtube", "concert", "event", "show"
-    ],
+    "movie","cinema","theatre","game","gaming",
+    "playstation","xbox","steam","epic games",
+    "netflix","prime","amazon prime","hotstar",
+    "spotify","youtube premium","sony liv","zee5",
+    "concert","show","event","cricket","ipl","match",
+    "bowling","arcade","amusement","park"
+],
     "healthcare": [
-        "medicine", "doctor", "hospital", "pharmacy",
-        "clinic", "lab", "test", "health", "dental"
-    ],
+    "doctor","hospital","clinic","medicine",
+    "medical","pharmacy","apollo pharmacy","medplus",
+    "lab","blood test","scan","xray","mri","ct scan",
+    "physiotherapy","dental","dentist","eye","vision",
+    "health insurance","vitamins","supplements",
+    "protein","whey","creatine"
+],
     "shopping": [
-        "shopping", "clothes", "shirt", "shoes", "amazon",
-        "flipkart", "myntra", "meesho", "jacket", "dress"
-    ],
+    "shopping","shirt","tshirt","pant","jeans",
+    "dress","jacket","hoodie","shoes","slippers",
+    "watch","bag","wallet","belt","perfume",
+    "amazon","flipkart","myntra","ajio","meesho",
+    "nykaa","decathlon","ikea"
+],
     "utilities": [
-        "electricity", "water", "gas", "internet", "wifi",
-        "mobile", "recharge", "jio", "airtel", "bsnl", "bill"
-    ],
+    "electricity","water","gas","internet","wifi",
+    "broadband","mobile recharge","recharge",
+    "airtel","jio","bsnl","vi",
+    "bill","postpaid","prepaid",
+    "electric bill","water bill","gas bill"
+],
     "education": [
-        "course", "books", "college", "fees", "tuition",
-        "udemy", "coursera", "stationery", "notebook", "pen"
-    ],
+    "college","school","fees","tuition",
+    "course","books","book","ebook",
+    "stationery","pen","pencil","notebook",
+    "printer","printing","xerox",
+    "udemy","coursera","edx","nptel",
+    "leetcode","geeksforgeeks","hackerrank",
+    "exam","gate","gate fees","certificate"
+],
     "rent": [
-        "rent", "lease", "deposit", "landlord", "pg", "hostel"
-    ],
+    "rent","hostel","pg","lease","deposit",
+    "landlord","maintenance","security deposit"
+],
     "investments": [
-        "stocks", "mutual funds", "sip", "crypto", "gold", "fd"
-    ],
-    "personal_care": [
-        "salon", "haircut", "spa", "cosmetics", "skincare", "makeup"
-    ],
+    "sip","mutual fund","mutual funds",
+    "stocks","shares","equity","gold",
+    "fd","fixed deposit","rd",
+    "crypto","bitcoin","ethereum",
+    "zerodha","groww","upstox","angel one"
+],
+    "personal_care":[
+    "haircut","salon","spa","parlour",
+    "cosmetics","makeup","skincare",
+    "facewash","shampoo","conditioner",
+    "soap","deodorant","perfume",
+    "razor","shaving","trimmer"
+],
     "gifts": [
-        "gift", "donation", "charity", "wedding", "birthday"
-    ],
-    "subscriptions": [
-        "subscription", "gym", "membership", "software"
-    ],
+    "gift","birthday","wedding","anniversary",
+    "charity","donation","temple","church","mosque",
+    "festival","rakhi","diwali","christmas"
+],
+    "subscriptions":[
+    "subscription","membership",
+    "gym","cult","fitpass",
+    "netflix","spotify","youtube premium",
+    "prime","chatgpt","claude",
+    "gemini","github","cursor",
+    "windsurf","canva","adobe",
+    "office365","icloud","google one"
+],
     "travel": [
-        "hotel", "flight", "airbnb", "holiday", "vacation", "trip"
-    ],
+    "trip","travel","holiday","vacation",
+    "hotel","resort","airbnb","hostel",
+    "flight","train","bus",
+    "booking","makemytrip","goibibo",
+    "yatra","oyo","agoda"
+],
     "other": []
 }
 
@@ -304,6 +364,80 @@ def detect_category_keyword(description: str) -> str:
     return "other"
 
 
+import json
+
+SYSTEM_PROMPT = """You are an expense categorization engine.
+
+Your ONLY task is to classify expenses into one of the following categories.
+
+Allowed categories:
+food
+transport
+groceries
+entertainment
+healthcare
+shopping
+utilities
+education
+rent
+investments
+personal_care
+gifts
+subscriptions
+travel
+other
+
+Rules:
+- Restaurant meals, cafes, hotels (food), bakeries, snacks, beverages, chocolates, desserts, street food, fast food and food delivery belong to food.
+- Grocery items bought for home belong to groceries.
+- Petrol, diesel, CNG, EV charging, taxi, Uber, Ola, Rapido, bus, metro, train, parking and toll belong to transport.
+- Hotel stay, flights, resorts and vacations belong to travel.
+- PG rent, hostel rent and house rent belong to rent.
+- Medicines, hospitals, doctors, pharmacies and medical tests belong to healthcare.
+- Clothing, footwear, electronics and accessories belong to shopping.
+- Netflix, Spotify, ChatGPT, Claude, Gemini, YouTube Premium, gym memberships and recurring memberships belong to subscriptions.
+- Courses, books, exams, college fees and stationery belong to education.
+- Mutual funds, SIP, stocks, gold, FD and investments belong to investments.
+- Haircut, salon, cosmetics and skincare belong to personal_care.
+- Gifts, donations and charity belong to gifts.
+
+Always choose the closest category.
+Use "other" ONLY if none of the categories reasonably fit.
+
+If the input contains one expense, return:
+{
+  "category": "<category>"
+}
+
+If the input contains multiple expenses, return:
+[
+  {
+    "index": 1,
+    "category": "<category>"
+  }
+]
+
+Return ONLY valid JSON.
+Do not explain.
+Do not include markdown.
+Do not include reasoning.
+Do not include extra text.
+
+Examples:
+Pizza -> {"category": "food"}
+Burger -> {"category": "food"}
+Panipuri -> {"category": "food"}
+Golgappa -> {"category": "food"}
+Dairy Milk -> {"category": "food"}
+Milk -> {"category": "groceries"}
+Petrol -> {"category": "transport"}
+Uber -> {"category": "transport"}
+Hostel Rent -> {"category": "rent"}
+Netflix -> {"category": "subscriptions"}
+Apollo Pharmacy -> {"category": "healthcare"}
+Amazon Shirt -> {"category": "shopping"}"""
+
+
 def detect_category_ai(description: str) -> str:
     """AI-powered category detection using NVIDIA NIM via LangChain (single expense)."""
     api_key = os.environ.get("NVIDIA_API_KEY")
@@ -312,93 +446,77 @@ def detect_category_ai(description: str) -> str:
 
     try:
         client = ChatNVIDIA(
-            model="meta/llama-3.1-8b-instruct",
+            model="qwen/qwen3.5-122b-a10b",
             api_key=api_key,
-            temperature=0.2,
-            top_p=0.7,
-            max_completion_tokens=50,  # single category name — 50 is more than enough
+            temperature=0.1,
+            top_p=0.1,  # Low top_p for deterministic classification
+            max_completion_tokens=500,
         )
-        category_list = ", ".join(VALID_CATEGORIES)
-        prompt = (
-            f"Categorize this expense into exactly one of these categories: "
-            f"{category_list}.\n"
-            f"Expense: '{description}'\n"
-            f"Reply with ONLY the category name, nothing else."
-        )
-        response = client.invoke([{"role": "user", "content": prompt}])
-        result = response.content.strip().lower()
+        response = client.invoke([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": description}
+        ])
+        
+        raw = response.content.strip()
+        # Clean potential markdown JSON formatting
+        if raw.startswith("```json"):
+            raw = raw[7:-3].strip()
+        elif raw.startswith("```"):
+            raw = raw[3:-3].strip()
+            
+        data = json.loads(raw)
+        result = data.get("category", "other").lower()
 
-        # Validate the AI response is a known category
         if result in VALID_CATEGORIES:
             return result
-        # Try partial match in case model adds extra words
-        for cat in VALID_CATEGORIES:
-            if cat in result:
-                return cat
-        # Fallback if response is unrecognised
-        return detect_category_keyword(description)
+        return "other"
     except Exception:
-        # Fallback to keyword matching if AI call fails
         return detect_category_keyword(description)
 
 
 def detect_categories_batch(descriptions: list) -> list:
-    """
-    Categorize ALL descriptions in ONE single API call.
-    Returns a list of categories in the same order as descriptions.
-    This is far more efficient than calling the AI once per expense.
-    One call handles 5 expenses or 100 expenses — no rate limit concern.
-    """
+    """Categorize ALL descriptions in ONE single API call."""
     api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
-        # No API key — keyword match all
         return [detect_category_keyword(d) for d in descriptions]
 
     try:
         client = ChatNVIDIA(
-            model="meta/llama-3.1-8b-instruct",
+            model="qwen/qwen3.5-122b-a10b",
             api_key=api_key,
-            temperature=0.2,
-            top_p=0.7,
-            # Each category is ~2-3 tokens; 100 categories = ~300 tokens max
-            max_completion_tokens=1024,
+            temperature=0.1,
+            top_p=0.1,
+            max_completion_tokens=500,
         )
-        category_list = ", ".join(VALID_CATEGORIES)
         numbered = "\n".join(f"{i+1}. {d}" for i, d in enumerate(descriptions))
-        prompt = (
-            f"Categorize each expense below into exactly one of: {category_list}.\n"
-            f"Return ONLY a comma-separated list of categories in the SAME ORDER.\n"
-            f"No numbers, no explanations — just category names separated by commas.\n\n"
-            f"Expenses:\n{numbered}"
-        )
-        response = client.invoke([{"role": "user", "content": prompt}])
-        raw = response.content.strip().lower()
-
-        # Parse comma-separated response
-        parts = [p.strip() for p in raw.split(",")]
-
-        # Validate and map each part to a known category
+        response = client.invoke([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": numbered}
+        ])
+        
+        raw = response.content.strip()
+        if raw.startswith("```json"):
+            raw = raw[7:-3].strip()
+        elif raw.startswith("```"):
+            raw = raw[3:-3].strip()
+            
+        data_list = json.loads(raw)
+        
         categories = []
-        for i, part in enumerate(parts):
-            if part in VALID_CATEGORIES:
-                categories.append(part)
-            else:
-                # Try partial match
-                matched = next((cat for cat in VALID_CATEGORIES if cat in part), None)
-                if matched:
-                    categories.append(matched)
-                else:
-                    # Fallback to keyword for this one item
-                    categories.append(detect_category_keyword(descriptions[i]) if i < len(descriptions) else "other")
-
-        # If AI returned wrong number of categories, fill remainder with keyword matching
-        while len(categories) < len(descriptions):
-            categories.append(detect_category_keyword(descriptions[len(categories)]))
-
-        return categories[:len(descriptions)]
+        for i in range(len(descriptions)):
+            cat = "other"
+            for item in data_list:
+                if item.get("index") == i + 1:
+                    cat = item.get("category", "other").lower()
+                    break
+            
+            if cat not in VALID_CATEGORIES:
+                cat = "other"
+            categories.append(cat)
+            
+        return categories
 
     except Exception:
-        # Fallback: keyword match all if batch call fails
         return [detect_category_keyword(d) for d in descriptions]
 
 
