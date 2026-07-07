@@ -20,10 +20,11 @@ Turso Cloud DB      ←── 3 persistent tables: expenses, budgets, reminders
 
 ## ✨ Features
 
-- ✅ **21 MCP tools** — add, read, update, delete, analytics, budgets, reminders
+- ✅ **Multi-User Architecture** — Single unified URL, multiple users, perfectly isolated data
+- ✅ **22 MCP tools** — register, add, read, update, delete, analytics, budgets, reminders
 - ✅ **AI-powered batch categorization** — ONE NVIDIA NIM call categorizes all bulk expenses
-- ✅ **Persistent cloud database** — Turso (libsql) with 3 tables, survives restarts
-- ✅ **3 DB indexes** — 10–100x faster queries on date, category, description
+- ✅ **Persistent cloud database** — Turso (libsql) with 4 tables, survives restarts
+- ✅ **4 DB indexes** — 10–100x faster queries on user_id, date, category, description
 - ✅ **Connection health check** — auto-reconnects if Turso connection drops
 - ✅ **Budget system** — set limits per category once, track all months automatically
 - ✅ **Reminders** — one-time and monthly recurring payment reminders
@@ -51,18 +52,31 @@ Done! 3 total operations regardless of batch size.
 
 ---
 
-## 🛠️ All 21 MCP Tools
+## 🛠️ All 22 MCP Tools
+
+> **Note on Multi-User Auth:** Every tool requires a `user_token`. ChatGPT automatically handles passing this token for you once you register and tell it to memorize the token.
+
+### 🔑 Authentication (1)
+
+#### 1. `register_user(name)`
+Registers you and provides a secure UUID token for the unified URL architecture.
+```
+"Register me as Ramesh"
+→ {message: "Registration successful!", user_token: "ut_9f8b7c..."}
+```
+
+---
 
 ### ➕ Add Tools (2)
 
-#### 1. `add_expense(amount, description, expense_date?)`
+#### 2. `add_expense(user_token, amount, description, expense_date?)`
 Add a single expense. Category auto-detected by NVIDIA Llama 3.1.
 ```
 "Add Rs 250 for lunch today"
 → {id: 55, amount: 250, category: "food", date: "2026-07-06"}
 ```
 
-#### 2. `add_bulk_expenses(expenses)`
+#### 3. `add_bulk_expenses(user_token, expenses)`
 Add up to 100 expenses — ONE AI call, ONE DB insert, ONE commit.
 ```
 "Add chai 30, uber 150, dinner 300"

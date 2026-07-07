@@ -51,23 +51,24 @@ def get_db():
 def init_db():
     """
     Create all tables and indexes if they do not already exist.
-    Tables:
-      - expenses  : core expense records
-      - budgets   : per-category monthly budget limits (set once, lasts forever)
-      - reminders : one-time or monthly recurring payment reminders
-    Indexes on expenses:
-      - idx_expense_date  : speeds up date filtering, monthly/weekly summaries
-      - idx_category      : speeds up category grouping and delete-by-category
-      - idx_description   : speeds up keyword search on description
-    Without indexes every query does a full table scan — O(n) per query.
-    With indexes queries are O(log n) — 10-100x faster as data grows.
     """
     db = get_db()
+
+    # ── users ─────────────────────────────────────────────────────────────────
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL,
+            user_token TEXT    NOT NULL UNIQUE,
+            created_at TEXT    NOT NULL
+        )
+    """)
 
     # ── expenses ──────────────────────────────────────────────────────────────
     db.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL DEFAULT 1,
             amount       REAL    NOT NULL,
             description  TEXT    NOT NULL,
             category     TEXT    NOT NULL,
@@ -75,48 +76,122 @@ def init_db():
             created_at   TEXT    NOT NULL
         )
     """)
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_expense_date ON expenses (expense_date)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_category ON expenses (category)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_description ON expenses (description)"
-    )
+    
+    # Safely add user_id to expenses if it doesn't exist (migration)
+    try:
+        db.execute("ALTER TABLE expenses ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass # Column likely already exists
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_expense_date ON expenses (expense_date)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_category ON expenses (category)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_description ON expenses (description)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_expense_user ON expenses (user_id)")
 
     # ── budgets ───────────────────────────────────────────────────────────────
-    # One row per category. UNIQUE on category ensures only one budget per
-    # category exists. Set once — applies to every future month automatically.
     db.execute("""
         CREATE TABLE IF NOT EXISTS budgets (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            category   TEXT    NOT NULL UNIQUE,
+            user_id    INTEGER NOT NULL DEFAULT 1,
+            category   TEXT    NOT NULL,
             amount     REAL    NOT NULL,
             created_at TEXT    NOT NULL,
-            updated_at TEXT    NOT NULL
+            updated_at TEXT    NOT NULL,
+            UNIQUE(user_id, category)
         )
     """)
+    
+    # Safely handle budgets migration
+    try:
+        db.execute("ALTER TABLE budgets ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+        
+    # Recreate budgets table to enforce the new UNIQUE(user_id, category) constraint properly
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS budgets_new (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL DEFAULT 1,
+            category   TEXT    NOT NULL,
+            amount     REAL    NOT NULL,
+            created_at TEXT    NOT NULL,
+            updated_at TEXT    NOT NULL,
+            UNIQUE(user_id, category)
+        )
+    """)
+    try:
+        # Move old data
+        db.execute("INSERT OR IGNORE INTO budgets_new (id, user_id, category, amount, created_at, updated_at) SELECT id, 1, category, amount, created_at, updated_at FROM budgets")
+        db.execute("DROP TABLE budgets")
+        db.execute("ALTER TABLE budgets_new RENAME TO budgets")
+    except Exception:
+        pass
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_budget_user ON budgets (user_id)")
 
     # ── reminders ─────────────────────────────────────────────────────────────
-    # Supports both one-time (due_date) and monthly recurring (recurring_day).
     db.execute("""
         CREATE TABLE IF NOT EXISTS reminders (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL DEFAULT 1,
             description   TEXT    NOT NULL,
             amount        REAL,
-            due_date      TEXT,            -- YYYY-MM-DD for one-time reminders
-            is_recurring  INTEGER DEFAULT 0,  -- 1 = repeats every month
-            recurring_day INTEGER,         -- day of month (1-31) for recurring
-            is_done       INTEGER DEFAULT 0,  -- 1 = marked as done
+            due_date      TEXT,
+            is_recurring  INTEGER DEFAULT 0,
+            recurring_day INTEGER,
+            is_done       INTEGER DEFAULT 0,
             created_at    TEXT    NOT NULL
         )
     """)
+    
+    try:
+        db.execute("ALTER TABLE reminders ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+        
+    db.execute("CREATE INDEX IF NOT EXISTS idx_reminder_user ON reminders (user_id)")
+
+    # Create the default user if it doesn't exist so existing data doesn't orphan
+    try:
+        db.execute("INSERT OR IGNORE INTO users (id, name, user_token, created_at) VALUES (1, 'Default Owner', 'ut_default_owner', datetime('now'))")
+    except Exception:
+        pass
 
     db.commit()
 
 
+
 init_db()
+
+import uuid
+
+def validate_token(user_token: str) -> int:
+    """Validates the user token and returns the user_id. Raises ValueError if invalid."""
+    db = get_db()
+    cur = db.execute("SELECT id FROM users WHERE user_token = ?", (user_token,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"Invalid user token: {user_token}. Please register first using register_user().")
+    return row[0]
+
+@mcp.tool()
+def register_user(name: str):
+    """
+    Register a new user to the Expense Tracker and get a unique secure token.
+    Save this token and use it for all future operations.
+    """
+    token = f"ut_{uuid.uuid4().hex[:8]}"
+    db = get_db()
+    db.execute(
+        "INSERT INTO users (name, user_token, created_at) VALUES (?, ?, datetime('now'))",
+        (name, token)
+    )
+    db.commit()
+    return {
+        "message": "Registration successful! Important: save this token to your Custom Instructions or Memory.",
+        "name": name,
+        "user_token": token
+    }
 
 # ---------------------------------------------------------------------------
 # Category detection — keyword-based (fallback when NVIDIA key not set)
@@ -345,6 +420,7 @@ def row_to_dict(row) -> dict:
 
 @mcp.tool()
 def add_expense(
+    user_token: str,
     amount: float,
     description: str,
     expense_date: str = None,
@@ -373,13 +449,14 @@ def add_expense(
 
     category = detect_category(description.strip())
     db = get_db()
+    user_id = validate_token(user_token)
 
     cur = db.execute(
         """
-        INSERT INTO expenses (amount, description, category, expense_date, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO expenses (user_id, amount, description, category, expense_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (amount, description.strip(), category, expense_date, datetime.now().isoformat()),
+        (user_id, amount, description.strip(), category, expense_date, datetime.now().isoformat()),
     )
     db.commit()
 
@@ -396,7 +473,7 @@ def add_expense(
 
 
 @mcp.tool()
-def add_bulk_expenses(expenses: list):
+def add_bulk_expenses(user_token: str, expenses: list):
     """
     Add multiple expenses at once (maximum 100 at a time).
     Each expense must be a dict with: amount, description, and optionally expense_date.
@@ -411,6 +488,7 @@ def add_bulk_expenses(expenses: list):
         return {"success": False, "error": f"Maximum 100 expenses allowed at once. You provided {len(expenses)}."}
 
     db = get_db()
+    user_id = validate_token(user_token)
     results = []
     errors = []
     now = datetime.now().isoformat()
@@ -458,13 +536,13 @@ def add_bulk_expenses(expenses: list):
 
     # Build all rows to insert at once
     rows_to_insert = [
-        (exp["amount"], exp["description"], cat, exp["expense_date"], now)
+        (user_id, exp["amount"], exp["description"], cat, exp["expense_date"], now)
         for exp, cat in zip(valid_indices, categories)
     ]
 
     # ONE executemany() call — inserts ALL expenses in a single DB operation
     db.executemany(
-        "INSERT INTO expenses (amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO expenses (user_id, amount, description, category, expense_date, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         rows_to_insert,
     )
     db.commit()  # ONE commit for everything
@@ -495,7 +573,7 @@ def add_bulk_expenses(expenses: list):
 
 
 @mcp.tool()
-def get_all_expenses(limit: int = 200):
+def get_all_expenses(user_token: str, limit: int = 200):
     """
     Get expenses sorted by latest date.
     limit: max number of rows to return (default 200, max 1000).
@@ -517,7 +595,7 @@ def get_all_expenses(limit: int = 200):
 
 
 @mcp.tool()
-def get_expenses_by_date(date: str):
+def get_expenses_by_date(user_token: str, date: str):
     """
     Get expenses for a specific date.
     Format: YYYY-MM-DD
@@ -534,7 +612,7 @@ def get_expenses_by_date(date: str):
 
 
 @mcp.tool()
-def search_expenses(keyword: str):
+def search_expenses(user_token: str, keyword: str):
     """Search expenses by description or category."""
     db = get_db()
     cur = db.execute(
@@ -555,7 +633,7 @@ def search_expenses(keyword: str):
 
 
 @mcp.tool()
-def monthly_summary(month: str = None):
+def monthly_summary(user_token: str, month: str = None):
     """
     Get expense summary grouped by category for a given month.
     month format: YYYY-MM (defaults to current month).
@@ -601,7 +679,7 @@ def monthly_summary(month: str = None):
 
 
 @mcp.tool()
-def weekly_summary():
+def weekly_summary(user_token: str):
     """
     Get expense summary for the current week (Monday to today).
     Shows total and category breakdown.
@@ -638,7 +716,7 @@ def weekly_summary():
 
 
 @mcp.tool()
-def yearly_summary(year: str = None):
+def yearly_summary(user_token: str, year: str = None):
     """
     Get expense summary broken down month by month for a given year.
     year format: YYYY (defaults to current year).
@@ -681,7 +759,7 @@ def yearly_summary(year: str = None):
 
 
 @mcp.tool()
-def spending_analytics():
+def spending_analytics(user_token: str):
     """
     Get smart spending insights:
     - Daily average this month
@@ -833,7 +911,7 @@ def update_expense(
         return {"success": False, "error": f"Expense ID {expense_id} not found"}
 
     # Return updated record
-    cur2 = db.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,))
+    cur2 = db.execute("SELECT * FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id))
     updated = cur2.fetchone()
     return {"success": True, "message": "Expense updated", "expense": row_to_dict(updated)}
 
@@ -844,10 +922,11 @@ def update_expense(
 
 
 @mcp.tool()
-def delete_expense(expense_id: int):
+def delete_expense(user_token: str, expense_id: int):
     """Delete a single expense by its ID."""
     db = get_db()
-    cur = db.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    user_id = validate_token(user_token)
+    cur = db.execute("DELETE FROM expenses WHERE id = ? AND user_id = ?", (expense_id, user_id))
     db.commit()
 
     if cur.rowcount == 0:
@@ -857,7 +936,7 @@ def delete_expense(expense_id: int):
 
 
 @mcp.tool()
-def bulk_delete_expenses(ids: list):
+def bulk_delete_expenses(user_token: str, ids: list):
     """
     Delete multiple expenses by a list of IDs at once.
     Example: bulk_delete_expenses([10, 11, 12, 13])
@@ -882,7 +961,7 @@ def bulk_delete_expenses(ids: list):
 
 
 @mcp.tool()
-def delete_expenses_by_category(category: str):
+def delete_expenses_by_category(user_token: str, category: str):
     """
     Delete all expenses in a specific category.
     category must be one of: food, transport, groceries, entertainment,
@@ -910,7 +989,7 @@ def delete_expenses_by_category(category: str):
 
 
 @mcp.tool()
-def delete_expenses_by_description(keyword: str):
+def delete_expenses_by_description(user_token: str, keyword: str):
     """
     Delete all expenses whose description contains the given keyword.
     Example: delete_expenses_by_description("netflix") deletes all Netflix entries.
@@ -940,7 +1019,7 @@ def delete_expenses_by_description(keyword: str):
 
 
 @mcp.tool()
-def delete_all_expenses(confirm: bool = False):
+def delete_all_expenses(user_token: str, confirm: bool = False):
     """
     Delete ALL expenses permanently.
     You MUST pass confirm=True to execute this. This cannot be undone.
@@ -971,7 +1050,7 @@ def delete_all_expenses(confirm: bool = False):
 
 
 @mcp.tool()
-def set_budget(category: str, amount: float):
+def set_budget(user_token: str, category: str, amount: float):
     """
     Set or update a monthly budget for a category.
     The budget is stored PERMANENTLY — it applies to every future month
@@ -1017,7 +1096,7 @@ def set_budget(category: str, amount: float):
 
 
 @mcp.tool()
-def get_budget_status(month: str = None):
+def get_budget_status(user_token: str, month: str = None):
     """
     Show spending vs budget for all categories for a given month.
     Highlights which categories are over budget, near limit, or safe.
@@ -1092,7 +1171,7 @@ def get_budget_status(month: str = None):
 
 
 @mcp.tool()
-def delete_budget(category: str):
+def delete_budget(user_token: str, category: str):
     """
     Remove the monthly budget for a category.
     After deletion, no budget check will be applied for that category.
@@ -1188,7 +1267,7 @@ def set_reminder(
 
 
 @mcp.tool()
-def get_upcoming_reminders(days: int = 7):
+def get_upcoming_reminders(user_token: str, days: int = 7):
     """
     Show all reminders due within the next N days (default: 7).
     Includes:
@@ -1265,7 +1344,7 @@ def get_upcoming_reminders(days: int = 7):
 
 
 @mcp.tool()
-def delete_reminder(reminder_id: int):
+def delete_reminder(user_token: str, reminder_id: int):
     """
     Permanently delete a reminder by its ID.
     Use get_upcoming_reminders() first to see IDs.
