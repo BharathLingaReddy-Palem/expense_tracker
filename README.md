@@ -173,6 +173,8 @@ The ultimate financial dashboard. Returns:
 - Biggest single expense
 - This week vs last week spending comparison
 
+> **Note on Income:** Income tracking is 100% optional. If you are a student or only want to track expenses, just ignore the income tools. The analytics dashboard will gracefully show a 0% savings rate without breaking!
+
 ---
 
 ### 💵 Income Tracking (3)
