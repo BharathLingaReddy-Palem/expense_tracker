@@ -226,7 +226,7 @@ CATEGORIES = {
         "food", "dinner", "lunch", "breakfast",
         "restaurant", "hotel", "tea", "coffee", "snacks",
         "swiggy", "zomato", "biryani", "pizza", "burger",
-        "shawarma", "juice", "ice cream", "cake", "chai"
+        "shawarma", "juice", "ice cream", "cake", "chai","drink"
     ],
     "transport": [
         "cab", "uber", "rapido", "auto", "bus",
